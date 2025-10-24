@@ -6,12 +6,16 @@ pub struct User {
 	pub id: Uuid,
 	pub email: String,
 	pub password_hash: String,
+	pub full_name: Option<String>,
+	pub phone: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct RegisterRequest {
 	pub email: String,
 	pub password: String,
+	pub full_name: Option<String>,
+	pub phone: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

@@ -6,7 +6,7 @@ use time::{Duration, OffsetDateTime};
 use tracing::info;
 use uuid::Uuid;
 
-use crate::{db::Db, errors::{AppError, AppResult}, models::{LoginRequest, RegisterRequest, TokenResponse, User}};
+use crate::{db::Db, errors::{AppError, AppResult}, models::{LoginRequest, RegisterRequest, TokenResponse}};
 
 #[derive(Debug, Serialize, Deserialize)]
 struct Claims {
@@ -28,6 +28,20 @@ pub async fn register(
 		return Err(AppError::BadRequest("email required and password >= 8 chars".into()));
 	}
 
+	// Normalize optional fields: trim and drop empty strings
+	let full_name = payload
+		.full_name
+		.as_deref()
+		.map(str::trim)
+		.filter(|s| !s.is_empty())
+		.map(|s| s.to_string());
+	let phone = payload
+		.phone
+		.as_deref()
+		.map(str::trim)
+		.filter(|s| !s.is_empty())
+		.map(|s| s.to_string());
+
 	// Check if exists
 	let existing: Option<(Uuid,)> = sqlx::query_as("SELECT id FROM users WHERE email = $1")
 		.bind(&email)
@@ -42,18 +56,20 @@ pub async fn register(
 
 	// Insert (generate UUID on app side to avoid DB extensions)
 	let id = Uuid::new_v4();
-	let user: User = sqlx::query_as::<_, User>(
-		"INSERT INTO users (id, email, password_hash) VALUES ($1, $2, $3) RETURNING id, email, password_hash",
+	sqlx::query(
+		"INSERT INTO users (id, email, password_hash, full_name, phone) VALUES ($1, $2, $3, $4, $5)",
 	)
 	.bind(id)
 	.bind(&email)
 	.bind(&password_hash)
-	.fetch_one(&db)
+	.bind(&full_name)
+	.bind(&phone)
+	.execute(&db)
 	.await?;
 
-	info!(user_id = %user.id, "User registered");
+	info!(user_id = %id, "User registered");
 
-	let token = generate_token(user.id)?;
+	let token = generate_token(id)?;
 	Ok((StatusCode::CREATED, Json(TokenResponse { token })))
 }
 
@@ -62,25 +78,25 @@ pub async fn login(
 	Json(payload): Json<LoginRequest>,
 ) -> AppResult<Json<TokenResponse>> {
 	let email = payload.email.trim().to_lowercase();
-	let user: Option<User> = sqlx::query_as(
-		"SELECT id, email, password_hash FROM users WHERE email = $1",
+	let rec: Option<(Uuid, String)> = sqlx::query_as(
+		"SELECT id, password_hash FROM users WHERE email = $1",
 	)
 	.bind(&email)
 	.fetch_optional(&db)
 	.await?;
 
-	let Some(user) = user else {
+	let Some((user_id, password_hash)) = rec else {
 		return Err(AppError::Unauthorized);
 	};
 
-	let valid = bcrypt::verify(&payload.password, &user.password_hash)?;
+	let valid = bcrypt::verify(&payload.password, &password_hash)?;
 	if !valid {
 		return Err(AppError::Unauthorized);
 	}
 
-	let token = generate_token(user.id)?;
+	let token = generate_token(user_id)?;
 
-	info!(user_id = %user.id, "User logged in");
+	info!(user_id = %user_id, "User logged in");
 
 	Ok(Json(TokenResponse { token }))
 }

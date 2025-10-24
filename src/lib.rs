@@ -6,6 +6,7 @@ pub mod models;
 pub mod auth;
 pub mod middleware;
 pub mod errors;
+pub mod users;
 
 // Handy re-exports
 pub use db::Db;

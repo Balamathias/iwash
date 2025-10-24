@@ -10,6 +10,7 @@ mod models;
 mod auth;
 mod middleware;
 mod errors;
+mod users;
 
 #[tokio::main]
 async fn main() {
