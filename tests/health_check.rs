@@ -1,9 +1,9 @@
 use axum::Router;
 use axum::http::{Request, StatusCode};
 use axum::body::Body;
-use axum::ServiceExt;
+use tower::ServiceExt;
 
-use iwash::routes::create_routes;
+use iwash::routes::create_api_router;
 
 #[tokio::test]
 async fn health_check_returns_200() {
@@ -11,10 +11,12 @@ async fn health_check_returns_200() {
         .connect_lazy("postgres://postgres:matiecodes@localhost/iwash_db")
         .expect("failed to create lazy pool");
 
-    let app: Router = Router::new().merge(create_routes()).with_state(pool);
+    let app: Router = Router::new()
+        .nest("/api/v1", create_api_router())
+        .with_state(pool);
 
     let req = Request::builder()
-        .uri("/health")
+        .uri("/api/v1/health")
         .body(Body::empty())
         .unwrap();
 

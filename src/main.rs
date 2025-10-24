@@ -1,16 +1,9 @@
 use axum::{routing::get, Router};
 use std::net::SocketAddr;
-use crate::routes::create_routes;
 use tracing::info;
 use tracing_subscriber::EnvFilter;
 
-mod db;
-mod routes;
-mod models;
-mod auth;
-mod middleware;
-mod errors;
-mod users;
+use iwash::{db, routes};
 
 #[tokio::main]
 async fn main() {
@@ -21,13 +14,15 @@ async fn main() {
 
     let pool = db::connect().await;
 
+    // Build the main application router with /api/v1 prefix
     let app = Router::new()
         .route("/", get(|| async { "Welcome to iWash API 🧺" }))
-        .merge(create_routes())
+        .nest("/api/v1", routes::create_api_router())
         .with_state(pool.clone());
 
     let addr = SocketAddr::from(([127, 0, 0, 1], 8080));
     info!("🚀 iWash backend running on http://{}", addr);
+    info!("📍 API endpoints available at http://{}/api/v1", addr);
 
     axum::serve(tokio::net::TcpListener::bind(addr).await.unwrap(), app)
         .await
