@@ -139,8 +139,8 @@ We have successfully built a robust multi-vendor laundry booking platform:
 
 🎯 **CURRENT WORK: Multi-Vendor Implementation**
 
-**Phase 4: Vendor Management & Public APIs**
-We are now implementing vendor functionality and making appropriate endpoints public:
+**Phase 4: Vendor Management & Public APIs (COMPLETED)**
+Vendor management handlers, routes and vendor service management (create/update/delete) are implemented. Booking creation now calculates prices automatically from service pricing. The following endpoints are available:
 
 1. **Vendor Handlers** (`src/handlers/vendors.rs`)
    - Register as vendor (create vendor profile)

@@ -22,15 +22,25 @@ pub async fn create_vendor(
     auth_user: AuthUser,
     Json(payload): Json<CreateVendorRequest>,
 ) -> AppResult<(axum::http::StatusCode, Json<VendorResponse>)> {
+    tracing::info!("Creating vendor profile for user_id: {}", auth_user.user_id);
+    
     // Check Vendor role
-    let _vendor_role = RequireVendor::check(&db, &auth_user).await?;
+    let _vendor_role = RequireVendor::check(&db, &auth_user).await.map_err(|e| {
+        tracing::error!("Role check failed: {:?}", e);
+        e
+    })?;
+
+    tracing::info!("Role check passed");
 
     // Validate coordinates if provided
     if let (Some(lat), Some(lng)) = (payload.latitude, payload.longitude) {
         if lat < -90.0 || lat > 90.0 || lng < -180.0 || lng > 180.0 {
+            tracing::error!("Invalid coordinates: lat={}, lng={}", lat, lng);
             return Err(AppError::BadRequest("Invalid coordinates".to_string()));
         }
     }
+
+    tracing::info!("Coordinates validated");
 
     // Check if vendor profile already exists for this user
     let existing: Option<(Uuid,)> = sqlx::query_as("SELECT id FROM vendors WHERE user_id = $1")
@@ -39,10 +49,13 @@ pub async fn create_vendor(
         .await?;
 
     if existing.is_some() {
+        tracing::error!("Vendor profile already exists for user {}", auth_user.user_id);
         return Err(AppError::BadRequest(
             "Vendor profile already exists for this user".to_string(),
         ));
     }
+
+    tracing::info!("No existing vendor profile found");
 
     // Convert lat/long to Decimal if provided
     let latitude = payload
@@ -52,8 +65,12 @@ pub async fn create_vendor(
         .longitude
         .map(|v| Decimal::from_f64_retain(v).unwrap_or_default());
 
+    tracing::info!("Coordinates converted to Decimal");
+
     // Create vendor profile
     let vendor_id = Uuid::new_v4();
+    
+    tracing::info!("Attempting to insert vendor with id: {}", vendor_id);
 
     let vendor: Vendor = sqlx::query_as(
         "INSERT INTO vendors (
@@ -78,7 +95,13 @@ pub async fn create_vendor(
     .bind(longitude)
     .bind(payload.service_radius_km)
     .fetch_one(&db)
-    .await?;
+    .await
+    .map_err(|e| {
+        tracing::error!("Database insert failed: {:?}", e);
+        AppError::Db(e)
+    })?;
+
+    tracing::info!("Vendor created successfully: {}", vendor_id);
 
     Ok((axum::http::StatusCode::CREATED, Json(vendor.into())))
 }
@@ -285,7 +308,9 @@ pub async fn update_vendor(
         .ok_or(AppError::NotFound)?;
 
     if vendor.user_id != auth_user.user_id {
-        return Err(AppError::Forbidden);
+        return Err(AppError::Forbidden(Some(
+            "You don't have permission to update this vendor profile".to_string()
+        )));
     }
 
     // Convert lat/long to Decimal
@@ -408,4 +433,37 @@ pub async fn get_vendor_stats(
     });
 
     Ok(Json(stats))
+}
+
+/// List reviews for a specific vendor (PUBLIC - no auth required)
+pub async fn list_vendor_reviews(
+    State(db): State<Db>,
+    Path(id): Path<String>,
+) -> AppResult<Json<Vec<crate::models::ReviewResponse>>> {
+    let vendor_id = Uuid::parse_str(&id)
+        .map_err(|_| AppError::BadRequest("Invalid vendor ID format".to_string()))?;
+
+    // Verify vendor exists
+    let vendor_exists: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM vendors WHERE id = $1 AND is_active = true)"
+    )
+    .bind(vendor_id)
+    .fetch_one(&db)
+    .await?;
+
+    if !vendor_exists {
+        return Err(AppError::NotFound);
+    }
+
+    // Fetch reviews for this vendor
+    let reviews = sqlx::query_as::<_, crate::models::Review>(
+        "SELECT * FROM reviews WHERE vendor_id = $1 ORDER BY created_at DESC"
+    )
+    .bind(vendor_id)
+    .fetch_all(&db)
+    .await?;
+
+    let responses: Vec<crate::models::ReviewResponse> = reviews.into_iter().map(|r| r.into()).collect();
+    
+    Ok(Json(responses))
 }

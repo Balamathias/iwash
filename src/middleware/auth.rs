@@ -119,8 +119,7 @@ impl RequireVendor {
         let role: UserRole = sqlx::query_scalar("SELECT role FROM users WHERE id = $1")
             .bind(auth_user.user_id)
             .fetch_one(db)
-            .await
-            .map_err(|_| AppError::Internal)?;
+            .await?; // Let database errors propagate with full details
 
         if !matches!(role, UserRole::Vendor) {
             return Err(AppError::BadRequest(
@@ -147,8 +146,7 @@ impl RequireAdmin {
         let role: UserRole = sqlx::query_scalar("SELECT role FROM users WHERE id = $1")
             .bind(auth_user.user_id)
             .fetch_one(db)
-            .await
-            .map_err(|_| AppError::Internal)?;
+            .await?; // Let database errors propagate with full details
 
         if !matches!(role, UserRole::Admin) {
             return Err(AppError::BadRequest(

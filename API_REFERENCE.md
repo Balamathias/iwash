@@ -259,7 +259,85 @@ Authorization: Bearer {token}
 
 ---
 
-## 📦 Bookings
+## �️ Vendor Service Management (Vendor Role Required)
+
+### Create Service
+```http
+POST /vendors/me/services
+Authorization: Bearer {token}
+Content-Type: application/json
+
+{
+  "name": "Express Wash & Fold",
+  "description": "Fast 24-hour laundry service",
+  "base_price_cents": 5000,
+  "price_per_kg_cents": 2000,
+  "estimated_duration_hours": 24
+}
+```
+**Response**: `201 Created`
+```json
+{
+  "id": "uuid",
+  "vendor_id": "uuid",
+  "name": "Express Wash & Fold",
+  "description": "Fast 24-hour laundry service",
+  "base_price_cents": 5000,
+  "price_per_kg_cents": 2000,
+  "estimated_duration_hours": 24,
+  "is_featured": false,
+  "is_active": true
+}
+```
+
+### List My Services
+```http
+GET /vendors/me/services
+Authorization: Bearer {token}
+```
+**Response**: `200 OK`
+```json
+[
+  {
+    "id": "uuid",
+    "vendor_id": "uuid",
+    "name": "Express Wash & Fold",
+    "description": "Fast 24-hour laundry service",
+    "base_price_cents": 5000,
+    "price_per_kg_cents": 2000,
+    "estimated_duration_hours": 24,
+    "is_featured": false,
+    "is_active": true
+  }
+]
+```
+
+### Update Service
+```http
+PATCH /vendors/me/services/{service_id}
+Authorization: Bearer {token}
+Content-Type: application/json
+
+{
+  "name": "Updated Service Name",
+  "base_price_cents": 6000,
+  "is_active": true
+}
+```
+**Response**: `200 OK` (same structure as Create Service)
+
+### Delete Service (Deactivate)
+```http
+DELETE /vendors/me/services/{service_id}
+Authorization: Bearer {token}
+```
+**Response**: `204 No Content`
+
+**Note**: Deleting a service soft-deletes it (sets `is_active` to `false`). The service still exists but won't appear in public listings.
+
+---
+
+## �📦 Bookings
 
 ### Customer Endpoints
 
@@ -273,10 +351,10 @@ Content-Type: application/json
   "service_id": "uuid",
   "pickup_address": "456 Customer Street",
   "delivery_address": "456 Customer Street",
-  "pickup_time": "2025-10-26T09:00:00Z",
-  "delivery_time": "2025-10-27T18:00:00Z",
-  "estimated_weight_kg": 5.0,
-  "special_instructions": "Handle with care"
+  "scheduled_pickup_time": "2025-10-26T09:00:00Z",
+  "scheduled_delivery_time": "2025-10-27T18:00:00Z",
+  "total_weight_kg": 5.0,
+  "notes": "Handle with care"
 }
 ```
 **Response**: `201 Created`
@@ -295,12 +373,13 @@ Content-Type: application/json
   "status": "pending",
   "pickup_address": "456 Customer Street",
   "delivery_address": "456 Customer Street",
-  "pickup_time": "2025-10-26T09:00:00Z",
-  "delivery_time": "2025-10-27T18:00:00Z",
-  "estimated_weight_kg": 5.0,
-  "actual_weight_kg": null,
-  "total_price_cents": null,
-  "special_instructions": "Handle with care",
+  "scheduled_pickup_time": "2025-10-26T09:00:00Z",
+  "scheduled_delivery_time": "2025-10-27T18:00:00Z",
+  "actual_pickup_time": null,
+  "actual_delivery_time": null,
+  "total_weight_kg": 5.0,
+  "total_price_cents": 12000,
+  "notes": "Handle with care",
   "created_at": "2025-10-25T12:00:00Z",
   "updated_at": "2025-10-25T12:00:00Z"
 }
@@ -331,7 +410,7 @@ Content-Type: application/json
 
 {
   "pickup_address": "New address",
-  "special_instructions": "Updated instructions"
+  "notes": "Updated instructions"
 }
 ```
 
@@ -363,9 +442,14 @@ Content-Type: application/json
 
 {
   "status": "confirmed",
-  "actual_weight_kg": 5.5,
-  "total_price_cents": 2750
+  "total_weight_kg": 5.5,
+  "total_price_cents": 12000,
 }
+Note: `total_price_cents` is calculated automatically by the server from the selected service's pricing using the formula:
+
+ - total_price_cents = base_price_cents + (price_per_kg_cents * total_weight_kg)
+
+If `total_weight_kg` is omitted the server uses the `base_price_cents` only.
 ```
 **Allowed Status Transitions**:
 - pending → confirmed
@@ -491,9 +575,10 @@ curl -X POST http://localhost:3000/api/v1/bookings \
     "service_id": "SERVICE_UUID",
     "pickup_address": "456 Customer St",
     "delivery_address": "456 Customer St",
-    "pickup_time": "2025-10-26T09:00:00Z",
-    "delivery_time": "2025-10-27T18:00:00Z",
-    "estimated_weight_kg": 5.0
+    "scheduled_pickup_time": "2025-10-26T09:00:00Z",
+    "scheduled_delivery_time": "2025-10-27T18:00:00Z",
+    "total_weight_kg": 5.0,
+    "notes": "Handle with care"
   }'
 ```
 

@@ -47,6 +47,9 @@ pub struct BookingWithDetails {
     pub service_name: Option<String>,
     pub vendor_id: Option<Uuid>,
     pub vendor_name: Option<String>,
+    pub vendor_phone: Option<String>,
+    pub vendor_city: Option<String>,
+    pub vendor_rating: Option<rust_decimal::Decimal>,
     pub status: BookingStatus,
     pub pickup_address: String,
     pub delivery_address: String,
@@ -77,8 +80,9 @@ pub struct CreateBookingRequest {
     pub pickup_address: String,
     pub delivery_address: String,
     pub scheduled_pickup_time: String, // ISO 8601 datetime string
+    pub scheduled_delivery_time: Option<String>, // ISO 8601 datetime string
+    pub total_weight_kg: Option<f64>,
     pub notes: Option<String>,
-    pub items: Vec<CreateBookingItemRequest>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -111,6 +115,9 @@ pub struct BookingResponse {
     pub service_name: Option<String>,
     pub vendor_id: Option<String>,
     pub vendor_name: Option<String>,
+    pub vendor_phone: Option<String>,
+    pub vendor_city: Option<String>,
+    pub vendor_rating: Option<f64>,
     pub status: BookingStatus,
     pub pickup_address: String,
     pub delivery_address: String,
@@ -170,6 +177,9 @@ impl From<Booking> for BookingResponse {
             service_name: None,
             vendor_id: None,
             vendor_name: None,
+            vendor_phone: None,
+            vendor_city: None,
+            vendor_rating: None,
             status: booking.status,
             pickup_address: booking.pickup_address,
             delivery_address: booking.delivery_address,
@@ -195,6 +205,9 @@ impl From<BookingWithDetails> for BookingResponse {
             service_name: booking.service_name,
             vendor_id: booking.vendor_id.map(|id| id.to_string()),
             vendor_name: booking.vendor_name,
+            vendor_phone: booking.vendor_phone,
+            vendor_city: booking.vendor_city,
+            vendor_rating: booking.vendor_rating.map(|d| d.to_string().parse().unwrap_or(0.0)),
             status: booking.status,
             pickup_address: booking.pickup_address,
             delivery_address: booking.delivery_address,

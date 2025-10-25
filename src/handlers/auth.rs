@@ -9,7 +9,7 @@ use uuid::Uuid;
 use crate::{
     db::Db,
     errors::{AppError, AppResult},
-    models::{LoginRequest, RegisterRequest, TokenResponse},
+    models::{LoginRequest, RegisterRequest, TokenResponse, User},
 };
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -77,8 +77,20 @@ pub async fn register(
 
     info!(user_id = %id, role = ?payload.role, "User registered");
 
+    // Fetch the created user
+    let user: User = sqlx::query_as("SELECT * FROM users WHERE id = $1")
+        .bind(id)
+        .fetch_one(&db)
+        .await?;
+
     let token = generate_token(id)?;
-    Ok((StatusCode::CREATED, Json(TokenResponse { token })))
+    Ok((
+        StatusCode::CREATED,
+        Json(TokenResponse {
+            user: user.into(),
+            token,
+        }),
+    ))
 }
 
 pub async fn login(
@@ -102,11 +114,20 @@ pub async fn login(
         return Err(AppError::Unauthorized);
     }
 
+    // Fetch full user object
+    let user: User = sqlx::query_as("SELECT * FROM users WHERE id = $1")
+        .bind(user_id)
+        .fetch_one(&db)
+        .await?;
+
     let token = generate_token(user_id)?;
 
     info!(user_id = %user_id, "User logged in");
 
-    Ok(Json(TokenResponse { token }))
+    Ok(Json(TokenResponse {
+        user: user.into(),
+        token,
+    }))
 }
 
 fn generate_token(user_id: Uuid) -> AppResult<String> {

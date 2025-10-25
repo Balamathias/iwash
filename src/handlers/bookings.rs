@@ -23,18 +23,20 @@ pub async fn create_booking(
     auth_user: AuthUser,
     Json(payload): Json<CreateBookingRequest>,
 ) -> AppResult<(StatusCode, Json<BookingResponse>)> {
-    // Validate service exists
+    // Parse and validate service ID
     let service_id = Uuid::parse_str(&payload.service_id)
         .map_err(|_| AppError::BadRequest("Invalid service ID format".to_string()))?;
 
-    let service_exists = sqlx::query_scalar::<_, bool>("SELECT EXISTS(SELECT 1 FROM services WHERE id = $1 AND is_active = true)")
-        .bind(service_id)
-        .fetch_one(&db)
-        .await?;
+    // Validate service exists and get its pricing
+    let service: Option<(i32, i32)> = sqlx::query_as(
+        "SELECT base_price_cents, price_per_kg_cents FROM services WHERE id = $1 AND is_active = true"
+    )
+    .bind(service_id)
+    .fetch_optional(&db)
+    .await?;
 
-    if !service_exists {
-        return Err(AppError::BadRequest("Service not found or inactive".to_string()));
-    }
+    let (base_price, price_per_kg) = service
+        .ok_or(AppError::BadRequest("Service not found or inactive".to_string()))?;
 
     // Parse scheduled pickup time
     let scheduled_pickup_time = OffsetDateTime::parse(&payload.scheduled_pickup_time, &time::format_description::well_known::Iso8601::DEFAULT)
@@ -45,26 +47,62 @@ pub async fn create_booking(
         return Err(AppError::BadRequest("Scheduled pickup time must be in the future".to_string()));
     }
 
+    // Parse scheduled delivery time if provided
+    let scheduled_delivery_time = if let Some(ref dt) = payload.scheduled_delivery_time {
+        let delivery_time = OffsetDateTime::parse(dt, &time::format_description::well_known::Iso8601::DEFAULT)
+            .map_err(|_| AppError::BadRequest("Invalid scheduled_delivery_time format. Use ISO 8601 format".to_string()))?;
+        
+        // Validate delivery time is after pickup time
+        if delivery_time <= scheduled_pickup_time {
+            return Err(AppError::BadRequest("Delivery time must be after pickup time".to_string()));
+        }
+        Some(delivery_time)
+    } else {
+        None
+    };
+
     // Validate addresses
     if payload.pickup_address.trim().is_empty() || payload.delivery_address.trim().is_empty() {
         return Err(AppError::BadRequest("Pickup and delivery addresses cannot be empty".to_string()));
     }
 
-    // Validate items
-    if payload.items.is_empty() {
-        return Err(AppError::BadRequest("At least one item must be provided".to_string()));
+    // Validate weight if provided
+    if let Some(weight) = payload.total_weight_kg {
+        if weight <= 0.0 {
+            return Err(AppError::BadRequest("Total weight must be greater than 0".to_string()));
+        }
     }
+
+    // Calculate total price based on service pricing
+    // Price = base_price + (price_per_kg * weight_kg)
+    let total_price_cents = if let Some(weight_kg) = payload.total_weight_kg {
+        base_price + ((price_per_kg as f64 * weight_kg) as i32)
+    } else {
+        // If no weight provided, use base price only
+        base_price
+    };
+
+    tracing::info!(
+        "Calculated booking price: base={} + (per_kg={} * weight={:?}) = {}",
+        base_price,
+        price_per_kg,
+        payload.total_weight_kg,
+        total_price_cents
+    );
 
     // Start a transaction
     let mut tx = db.begin().await?;
 
     // Create the booking
     let booking_id = Uuid::new_v4();
+    let weight_decimal = payload.total_weight_kg
+        .map(|w| rust_decimal::Decimal::from_f64_retain(w).unwrap_or_default());
     
     sqlx::query(
         "INSERT INTO bookings (id, user_id, service_id, status, pickup_address, delivery_address, 
-                              scheduled_pickup_time, total_price_cents, notes)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)"
+                              scheduled_pickup_time, scheduled_delivery_time, total_weight_kg, 
+                              total_price_cents, notes)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)"
     )
     .bind(booking_id)
     .bind(auth_user.user_id)
@@ -73,38 +111,28 @@ pub async fn create_booking(
     .bind(payload.pickup_address.trim())
     .bind(payload.delivery_address.trim())
     .bind(scheduled_pickup_time)
-    .bind(0) // Initial price, will be calculated later
+    .bind(scheduled_delivery_time)
+    .bind(weight_decimal)
+    .bind(total_price_cents) // Use calculated price
     .bind(payload.notes.as_ref().map(|s| s.trim()))
     .execute(&mut *tx)
     .await?;
 
-    // Insert booking items
-    for item in &payload.items {
-        if item.quantity < 1 {
-            return Err(AppError::BadRequest("Item quantity must be at least 1".to_string()));
-        }
-
-        let weight = item.weight_kg.map(|w| rust_decimal::Decimal::from_f64_retain(w).unwrap_or_default());
-
-        sqlx::query(
-            "INSERT INTO booking_items (id, booking_id, item_type, quantity, weight_kg, notes)
-             VALUES ($1, $2, $3, $4, $5, $6)"
-        )
-        .bind(Uuid::new_v4())
-        .bind(booking_id)
-        .bind(item.item_type.trim())
-        .bind(item.quantity)
-        .bind(weight)
-        .bind(item.notes.as_ref().map(|s| s.trim()))
-        .execute(&mut *tx)
-        .await?;
-    }
-
     tx.commit().await?;
 
-    // Fetch the created booking
-    let booking = sqlx::query_as::<_, Booking>(
-        "SELECT * FROM bookings WHERE id = $1"
+    // Fetch the created booking with vendor information
+    let booking = sqlx::query_as::<_, BookingWithDetails>(
+        "SELECT b.*, 
+                s.name as service_name, 
+                s.vendor_id,
+                v.business_name as vendor_name,
+                v.business_phone as vendor_phone,
+                v.city as vendor_city,
+                v.rating as vendor_rating
+         FROM bookings b
+         LEFT JOIN services s ON b.service_id = s.id
+         LEFT JOIN vendors v ON s.vendor_id = v.id
+         WHERE b.id = $1"
     )
     .bind(booking_id)
     .fetch_one(&db)
@@ -301,9 +329,15 @@ pub async fn update_booking(
     .execute(&db)
     .await?;
 
-    // Fetch updated booking
-    let booking = sqlx::query_as::<_, Booking>(
-        "SELECT * FROM bookings WHERE id = $1"
+    // Fetch updated booking with service/vendor details so response contains vendor info
+    let booking = sqlx::query_as::<_, BookingWithDetails>(
+        "SELECT b.*, s.name as service_name, s.vendor_id, \
+                v.business_name as vendor_name, v.business_phone as vendor_phone, \
+                v.city as vendor_city, v.rating as vendor_rating\
+         FROM bookings b\
+         LEFT JOIN services s ON b.service_id = s.id\
+         LEFT JOIN vendors v ON s.vendor_id = v.id\
+         WHERE b.id = $1"
     )
     .bind(booking_id)
     .fetch_one(&db)
