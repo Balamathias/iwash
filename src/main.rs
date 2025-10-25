@@ -1,10 +1,13 @@
-use axum::{routing::get, Router};
+use axum::{middleware, routing::get, Router};
 use std::net::SocketAddr;
-use tower_http::trace::{self, TraceLayer};
+use tower_http::{
+    cors::{Any, CorsLayer},
+    trace::{self, TraceLayer},
+};
 use tracing::{info, Level};
 use tracing_subscriber::EnvFilter;
 
-use iwash::{db, routes};
+use iwash::{db, middleware::request_id_middleware, routes};
 
 #[tokio::main]
 async fn main() {
@@ -15,11 +18,19 @@ async fn main() {
 
     let pool = db::connect().await;
 
+    // Configure CORS for React Native frontend
+    let cors = CorsLayer::new()
+        .allow_origin(Any) // In production, specify exact origins
+        .allow_methods(Any)
+        .allow_headers(Any);
+
     // Build the main application router with /api/v1 prefix
     let app = Router::new()
         .route("/", get(|| async { "Welcome to iWash API 🧺" }))
         .nest("/api/v1", routes::create_api_router())
         .with_state(pool.clone())
+        .layer(middleware::from_fn(request_id_middleware))
+        .layer(cors)
         .layer(
             TraceLayer::new_for_http()
                 .make_span_with(trace::DefaultMakeSpan::new().level(Level::INFO))
