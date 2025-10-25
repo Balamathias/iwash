@@ -63,17 +63,19 @@ pub async fn register(
     // Insert (generate UUID on app side to avoid DB extensions)
     let id = Uuid::new_v4();
     sqlx::query(
-        "INSERT INTO users (id, email, password_hash, full_name, phone) VALUES ($1, $2, $3, $4, $5)",
+        "INSERT INTO users (id, email, password_hash, full_name, phone, role) 
+         VALUES ($1, $2, $3, $4, $5, $6)",
     )
     .bind(id)
     .bind(&email)
     .bind(&password_hash)
     .bind(&full_name)
     .bind(&phone)
+    .bind(payload.role)
     .execute(&db)
     .await?;
 
-    info!(user_id = %id, "User registered");
+    info!(user_id = %id, role = ?payload.role, "User registered");
 
     let token = generate_token(id)?;
     Ok((StatusCode::CREATED, Json(TokenResponse { token })))

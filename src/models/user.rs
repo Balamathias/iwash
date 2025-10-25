@@ -1,5 +1,15 @@
 use serde::{Deserialize, Serialize};
+use sqlx::types::time::OffsetDateTime;
 use uuid::Uuid;
+
+#[derive(Debug, Serialize, Deserialize, sqlx::Type, Clone, Copy, PartialEq, Eq)]
+#[sqlx(type_name = "user_role", rename_all = "lowercase")]
+#[serde(rename_all = "lowercase")]
+pub enum UserRole {
+    Customer,
+    Vendor,
+    Admin,
+}
 
 #[derive(Debug, Serialize, sqlx::FromRow)]
 pub struct User {
@@ -8,6 +18,11 @@ pub struct User {
     pub password_hash: String,
     pub full_name: Option<String>,
     pub phone: Option<String>,
+    pub role: UserRole,
+    pub is_active: bool,
+    pub email_verified: bool,
+    pub created_at: OffsetDateTime,
+    pub updated_at: OffsetDateTime,
 }
 
 #[derive(Debug, Deserialize)]
@@ -16,6 +31,12 @@ pub struct RegisterRequest {
     pub password: String,
     pub full_name: Option<String>,
     pub phone: Option<String>,
+    #[serde(default = "default_role")]
+    pub role: UserRole,
+}
+
+fn default_role() -> UserRole {
+    UserRole::Customer
 }
 
 #[derive(Debug, Deserialize)]
@@ -35,6 +56,25 @@ pub struct UserResponse {
     pub email: String,
     pub full_name: Option<String>,
     pub phone: Option<String>,
+    pub role: UserRole,
+    pub is_active: bool,
+    pub email_verified: bool,
+    pub created_at: String,
+}
+
+impl From<User> for UserResponse {
+    fn from(user: User) -> Self {
+        UserResponse {
+            id: user.id.to_string(),
+            email: user.email,
+            full_name: user.full_name,
+            phone: user.phone,
+            role: user.role,
+            is_active: user.is_active,
+            email_verified: user.email_verified,
+            created_at: user.created_at.to_string(),
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -43,6 +83,8 @@ pub struct CreateUserRequest {
     pub password: String,
     pub full_name: Option<String>,
     pub phone: Option<String>,
+    #[serde(default = "default_role")]
+    pub role: UserRole,
 }
 
 #[derive(Debug, Deserialize)]

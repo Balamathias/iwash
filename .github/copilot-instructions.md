@@ -1,29 +1,42 @@
 🧺 Project Context: iWash Backend
 🚀 Overview
 
-iWash is a modern laundry-booking backend written in Rust using:
+iWash is a modern **multi-vendor laundry booking platform** written in Rust using:
 
 🦀 Axum for the web framework
 
 🐘 PostgreSQL + SQLx for async database access
 
-🔐 JWT for authentication
+🔐 JWT for authentication with role-based access control
 
 🧠 Tokio runtime for async tasks
 
-The backend will serve a React Native frontend, providing a clean REST API for users to:
+The backend serves a React Native frontend, providing a clean REST API for:
 
-Register / log in securely
+**Customers** to:
+- Browse and search vendors by location and rating
+- Book laundry services from different vendors
+- Track order status in real-time
+- Leave reviews and ratings
 
-Create and track laundry bookings
+**Vendors** to:
+- Register and manage their laundry business
+- Create and price their services
+- Manage bookings and update statuses
+- Track earnings and request payouts
+- Respond to customer reviews
 
-Handle payment and order statuses
+**Admins** to:
+- Verify vendor businesses
+- Oversee platform operations
+- Manage disputes
+- View analytics
 
 📂 Project Structure
 ```
 iwash/
 ├── src/
-│   ├── main.rs              # Binary entry point
+│   ├── main.rs              # Binary entry point with middleware stack
 │   ├── lib.rs               # Library crate exports
 │   ├── config/              # Configuration management
 │   │   └── mod.rs
@@ -31,32 +44,49 @@ iwash/
 │   │   └── mod.rs
 │   ├── models/              # Domain models & DTOs
 │   │   ├── mod.rs
-│   │   └── user.rs
+│   │   ├── user.rs          # User, UserRole, UserResponse
+│   │   ├── vendor.rs        # Vendor, Review models
+│   │   ├── service.rs       # Service model  
+│   │   └── booking.rs       # Booking, BookingItem, BookingStatus
 │   ├── handlers/            # Business logic / request handlers
 │   │   ├── mod.rs
-│   │   ├── auth.rs
-│   │   ├── users.rs
-│   │   └── health.rs
+│   │   ├── auth.rs          # Registration, login
+│   │   ├── users.rs         # User CRUD
+│   │   ├── vendors.rs       # Vendor management (TBD)
+│   │   ├── services.rs      # Service listing
+│   │   ├── bookings.rs      # Booking management
+│   │   └── health.rs        # Health checks
 │   ├── routes/              # Route definitions (thin layer)
 │   │   ├── mod.rs
 │   │   ├── auth.rs
 │   │   ├── users.rs
+│   │   ├── vendors.rs       # (TBD)
+│   │   ├── services.rs
+│   │   ├── bookings.rs
 │   │   └── health.rs
 │   ├── middleware/          # Request middleware
 │   │   ├── mod.rs
-│   │   └── auth.rs
+│   │   ├── auth.rs          # JWT authentication
+│   │   └── request_id.rs    # Request ID tracking
 │   ├── errors/              # Error handling
-│   │   └── mod.rs
+│   │   └── mod.rs           # AppError with error codes
 │   ├── services/            # Business services layer
 │   │   └── mod.rs
 │   └── utils/               # Utilities
 │       └── mod.rs
 ├── tests/                   # Integration tests
-│   ├── health_check.rs
-│   ├── auth_tests.rs
-│   └── users_tests.rs
+│   ├── common/
+│   │   └── mod.rs           # Test utilities
+│   ├── health_check.rs      # 1 test
+│   ├── auth_tests.rs        # 6 tests
+│   ├── users_tests.rs       # 15 tests
+│   ├── bookings_tests.rs    # (TBD)
+│   └── vendors_tests.rs     # (TBD)
 ├── sql/                     # Database schemas
-│   └── schema.sql
+│   ├── schema.sql           # Base schema
+│   ├── test_schema.sql      # Test database schema
+│   ├── bookings_schema.sql  # Booking system
+│   └── multi_vendor_migration.sql  # Multi-vendor architecture
 ├── Cargo.toml
 ├── .env
 └── README.md
@@ -69,60 +99,126 @@ You could add more as needed.
 
 🧩 Current Stage
 
-We have successfully built the core backend foundation:
+We have successfully built a robust multi-vendor laundry booking platform:
 
 ✅ **Phase 1: Core Setup (COMPLETED)**
 - Rust project initialized with modular architecture
 - Professional folder structure with separation of concerns
-- Dependencies configured (Axum, SQLx, dotenvy, JWT, bcrypt, tracing)
+- Dependencies configured (Axum, SQLx, JWT, bcrypt, tracing, tower-http)
 - Database connection implemented with connection pooling
-- Robust error handling with AppError + IntoResponse
+- Robust error handling with AppError + IntoResponse with error codes
 - Comprehensive structured logging with tracing
+- HTTP request/response logging with TraceLayer
+- Rate limiting (100 requests burst, 2/sec sustained)
+- CORS support for React Native frontend
+- Request ID tracking middleware
 
 ✅ **Phase 2: Authentication & Users (COMPLETED)**
-- User model with email, password_hash, full_name, phone
+- User model with full_name, phone, role (customer/vendor/admin)
 - JWT-based authentication middleware (24-hour expiry)
-- Register endpoint with validation (POST /api/v1/auth/register)
+- Register endpoint with role selection (POST /api/v1/auth/register)
 - Login endpoint with bcrypt verification (POST /api/v1/auth/login)
 - Complete Users CRUD API (list, get, create, update, delete, me)
-- 18 integration tests covering all endpoints (100% passing)
+- Pagination support (page, limit up to 100)
+- Search functionality (by email and name)
+- 22 integration tests covering all endpoints (100% passing)
 - API versioning (/api/v1 prefix)
+
+✅ **Phase 3: Multi-Vendor Architecture (COMPLETED)**
+- UserRole enum (Customer, Vendor, Admin)
+- Vendors table with comprehensive business profiles
+- Reviews and ratings system
+- Vendor service areas (location-based)
+- Vendor availability schedules
+- Vendor payout tracking
+- Services linked to vendors (vendor_id FK)
+- Booking system with status tracking
+- Database migrations applied to production and test databases
 
 ---
 
-🎯 **NEXT STEPS: Laundry Booking System**
+🎯 **CURRENT WORK: Multi-Vendor Implementation**
 
-**Phase 3: Booking Models & Services**
-We will now implement the core laundry booking functionality:
+**Phase 4: Vendor Management & Public APIs**
+We are now implementing vendor functionality and making appropriate endpoints public:
 
-1. **Database Schema** (`sql/bookings_schema.sql`)
-   - `services` table (wash types: Regular, Delicate, Dry Clean, etc.)
-   - `bookings` table (user_id, service_id, status, pickup_address, delivery_address, scheduled_time)
-   - `pricing` table (service_id, price_per_kg, base_price)
-   - `booking_items` table (booking_id, item_type, quantity, weight_kg)
-   - Enums: BookingStatus (Pending, Confirmed, PickedUp, InProgress, Ready, Delivered, Cancelled)
+1. **Vendor Handlers** (`src/handlers/vendors.rs`)
+   - Register as vendor (create vendor profile)
+   - Get vendor profile (own and public)
+   - Update vendor profile
+   - List all vendors (PUBLIC, filterable by city, rating, verified status)
+   - Get vendor details (PUBLIC)
+   - Vendor dashboard stats
 
-2. **Models** (`src/models/booking.rs`, `src/models/service.rs`)
-   ```rust
-   // Booking lifecycle
-   - CreateBookingRequest
-   - UpdateBookingRequest
-   - BookingResponse
-   - Service (laundry service types)
-   - BookingItem (items in a booking)
+2. **Vendor Routes** (`src/routes/vendors.rs`)
+   ```
+   POST   /api/v1/vendors          - Create vendor profile (Vendor role required)
+   GET    /api/v1/vendors          - List all vendors (PUBLIC)
+   GET    /api/v1/vendors/me       - Get own vendor profile (Vendor role)
+   GET    /api/v1/vendors/{id}     - Get vendor details (PUBLIC)
+   PATCH  /api/v1/vendors/{id}     - Update vendor profile (Vendor role)
+   GET    /api/v1/vendors/{id}/services  - List vendor services (PUBLIC)
+   GET    /api/v1/vendors/{id}/reviews   - List vendor reviews (PUBLIC)
    ```
 
-3. **Handlers** (`src/handlers/bookings.rs`, `src/handlers/services.rs`)
-   - Create booking (authenticated users)
-   - List user's bookings (with filters: status, date range)
-   - Get booking details
-   - Update booking status (admin/staff role)
-   - Cancel booking
-   - List available services
-   - Get service pricing
+3. **Role-Based Access Control**
+   - Update AuthUser middleware to extract user role
+   - Create RequireRole middleware (RequireVendor, RequireAdmin)
+   - Apply role guards to protected endpoints
+   - Make public endpoints accessible without auth
 
-4. **Routes** (`src/routes/bookings.rs`, `src/routes/services.rs`)
-   ```
+4. **Public Endpoints** (No authentication required)
+   - GET /api/v1/vendors (browse all vendors)
+   - GET /api/v1/vendors/{id} (vendor details)
+   - GET /api/v1/vendors/{id}/services (vendor's services)
+   - GET /api/v1/vendors/{id}/reviews (vendor reviews)
+   - GET /api/v1/services (browse all services)
+   - GET /api/v1/services/{id} (service details)
+
+5. **Update Services Handlers**
+   - Make list_services and get_service PUBLIC
+   - Add vendor_id filter to list_services
+   - Return vendor info with service details
+
+6. **Update Bookings for Multi-Vendor**
+   - Link bookings to vendors through services
+   - Add vendor_id to booking responses
+   - Vendor dashboard: view their bookings
+   - Customer view: see vendor info in bookings
+   - Vendor can update booking status
+
+---
+
+🎯 **NEXT STEPS: Complete Multi-Vendor Features**
+
+**Phase 5: Reviews & Ratings (Future)**
+- Customer can leave review after booking completion
+- Vendor can respond to reviews
+- Calculate and update vendor average rating
+- List reviews for a vendor (paginated)
+
+**Phase 6: Payments & Payouts (Future)**
+- Payment integration (Paystack/Flutterwave)
+- Booking payment processing
+- Vendor earnings tracking
+- Payout request and processing
+- Invoice generation
+
+**Phase 7: Notifications (Future)**
+- Email notifications (booking confirmations, status updates)
+- SMS notifications for critical updates
+- Push notifications for mobile app
+- Vendor notification preferences
+
+**Phase 8: Admin Dashboard (Future)**
+- Admin endpoints for vendor verification
+- Platform analytics and metrics
+- Dispute management
+- User and vendor moderation
+- System configuration
+
+
+When assisting in this project, the AI agent should:
    POST   /api/v1/bookings          - Create new booking
    GET    /api/v1/bookings          - List user's bookings
    GET    /api/v1/bookings/:id      - Get booking details
@@ -151,18 +247,6 @@ We will now implement the core laundry booking functionality:
 - Payment model (booking_id, amount, status, payment_method)
 - Integration with payment gateway (Stripe/PayPal)
 - Payment confirmation webhooks
-- Invoice generation
-
-**Phase 5: Admin Dashboard (Future)**
-- Admin role-based access
-- Booking management
-- User management
-- Analytics & reporting
-
-**Phase 6: Notifications (Future)**
-- Email notifications (booking confirmations, status updates)
-- SMS notifications
-- Push notifications for mobile app
 
 
 When assisting in this project, the AI agent should:
@@ -214,18 +298,21 @@ When assisting in this project, the AI agent should:
 
 **Logging:**
 - Use tracing crate for structured logging
-- Log important events (user registration, booking creation, etc.)
+- Log important events (user registration, booking creation, vendor registration, etc.)
 - Log errors with context
 - Use appropriate log levels (info, warn, error)
-- Include request IDs for traceability (future enhancement)
+- Include request IDs for traceability via request_id middleware
 
 Example .env
+```env
 DATABASE_URL=postgres://postgres:password@localhost/iwash_db
-JWT_SECRET=super_secret_key
+TEST_DATABASE_URL=postgres://postgres:password@localhost/iwash_test
+JWT_SECRET=super_secret_key_change_in_production
+```
 
 🧭 Goal
 
-To produce a production-ready Rust backend that can be easily connected to a React Native frontend for a laundry service platform (user bookings, payments, order tracking).
+To produce a production-ready Rust backend for a **multi-vendor laundry booking platform** that can be easily connected to a React Native frontend, supporting customers, vendors, and admins.
 
 **Development Philosophy:**
 - MAKE SURE WE DEVELOP, BUILD AND RUN ONE STEP AT A TIME!
@@ -236,10 +323,10 @@ To produce a production-ready Rust backend that can be easily connected to a Rea
 **Current API Endpoints:**
 
 **Health & Monitoring:**
-- GET  /api/v1/health - Health check (public)
+- GET  /api/v1/health - Health check with database status (public)
 
 **Authentication:**
-- POST /api/v1/auth/register - Register new user
+- POST /api/v1/auth/register - Register new user (customer/vendor/admin)
 - POST /api/v1/auth/login - Login and get JWT token
 
 **Users (Protected):**
@@ -255,3 +342,22 @@ To produce a production-ready Rust backend that can be easily connected to a Rea
 - Auth tests: 6
 - Users tests: 11
 - Health check: 1
+**Services (Public):**
+- GET    /api/v1/services - List all active services
+- GET    /api/v1/services/{id} - Get service details
+
+**Bookings (Protected):**
+- POST   /api/v1/bookings - Create new booking
+- GET    /api/v1/bookings - List user's bookings (paginated, filterable)
+- GET    /api/v1/bookings/{id} - Get booking details
+- PATCH  /api/v1/bookings/{id} - Update booking
+- DELETE /api/v1/bookings/{id}/cancel - Cancel booking
+
+**Vendors (TBD - Next Phase):**
+- POST   /api/v1/vendors - Create vendor profile (Vendor role)
+- GET    /api/v1/vendors - List all vendors (PUBLIC, filterable)
+- GET    /api/v1/vendors/me - Get own vendor profile (Vendor role)
+- GET    /api/v1/vendors/{id} - Get vendor details (PUBLIC)
+- PATCH  /api/v1/vendors/{id} - Update vendor profile (Vendor role)
+- GET    /api/v1/vendors/{id}/services - List vendor services (PUBLIC)
+- GET    /api/v1/vendors/{id}/reviews - List vendor reviews (PUBLIC)

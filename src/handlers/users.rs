@@ -5,7 +5,7 @@ use crate::{
     db::Db,
     errors::{AppError, AppResult},
     middleware::AuthUser,
-    models::{CreateUserRequest, ListUsersQuery, PaginatedUsersResponse, UpdateUserRequest, UserResponse},
+    models::{CreateUserRequest, ListUsersQuery, PaginatedUsersResponse, UpdateUserRequest, User, UserResponse},
 };
 
 pub async fn list_users(
@@ -30,9 +30,9 @@ pub async fn list_users(
         .fetch_one(&db)
         .await?;
 
-        // Paginated result set (note bind order: pattern, limit, offset)
-        let rows: Vec<(Uuid, String, Option<String>, Option<String>)> = sqlx::query_as(
-            "SELECT id, email, full_name, phone FROM users WHERE LOWER(email) LIKE $1 OR LOWER(full_name) LIKE $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3",
+        // Paginated result set
+        let users: Vec<User> = sqlx::query_as(
+            "SELECT * FROM users WHERE LOWER(email) LIKE $1 OR LOWER(full_name) LIKE $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3",
         )
         .bind(&pattern)
         .bind(limit as i64)
@@ -40,20 +40,12 @@ pub async fn list_users(
         .fetch_all(&db)
         .await?;
 
-        let users = rows
-            .into_iter()
-            .map(|(id, email, full_name, phone)| UserResponse {
-                id: id.to_string(),
-                email,
-                full_name,
-                phone,
-            })
-            .collect();
+        let user_responses: Vec<UserResponse> = users.into_iter().map(|u| u.into()).collect();
 
         let total_pages = ((total as f64) / (limit as f64)).ceil() as u32;
 
         return Ok(Json(PaginatedUsersResponse {
-            users,
+            users: user_responses,
             page,
             limit,
             total,
@@ -66,28 +58,20 @@ pub async fn list_users(
         .fetch_one(&db)
         .await?;
 
-    let rows: Vec<(Uuid, String, Option<String>, Option<String>)> = sqlx::query_as(
-        "SELECT id, email, full_name, phone FROM users ORDER BY created_at DESC LIMIT $1 OFFSET $2",
+    let users: Vec<User> = sqlx::query_as(
+        "SELECT * FROM users ORDER BY created_at DESC LIMIT $1 OFFSET $2",
     )
     .bind(limit as i64)
     .bind(offset)
     .fetch_all(&db)
     .await?;
 
-    let users = rows
-        .into_iter()
-        .map(|(id, email, full_name, phone)| UserResponse {
-            id: id.to_string(),
-            email,
-            full_name,
-            phone,
-        })
-        .collect();
+    let user_responses: Vec<UserResponse> = users.into_iter().map(|u| u.into()).collect();
 
     let total_pages = ((total as f64) / (limit as f64)).ceil() as u32;
 
     Ok(Json(PaginatedUsersResponse {
-        users,
+        users: user_responses,
         page,
         limit,
         total,
@@ -100,18 +84,13 @@ pub async fn get_user(
     _user: AuthUser,
     Path(id): Path<Uuid>,
 ) -> AppResult<Json<UserResponse>> {
-    let (id, email, full_name, phone): (Uuid, String, Option<String>, Option<String>) =
-        sqlx::query_as("SELECT id, email, full_name, phone FROM users WHERE id = $1")
+    let user: User = sqlx::query_as("SELECT * FROM users WHERE id = $1")
             .bind(id)
             .fetch_one(&db)
-            .await?;
+            .await
+            .map_err(|_| AppError::NotFound)?;
 
-    Ok(Json(UserResponse {
-        id: id.to_string(),
-        email,
-        full_name,
-        phone,
-    }))
+    Ok(Json(user.into()))
 }
 
 pub async fn create_user(
@@ -142,26 +121,24 @@ pub async fn create_user(
     let id = Uuid::new_v4();
     let password_hash = bcrypt::hash(&payload.password, bcrypt::DEFAULT_COST)?;
 
-    let (id, email, full_name, phone): (Uuid, String, Option<String>, Option<String>) =
+    let user: User =
         sqlx::query_as(
-            "INSERT INTO users (id, email, password_hash, full_name, phone) VALUES ($1, $2, $3, $4, $5) RETURNING id, email, full_name, phone",
+            "INSERT INTO users (id, email, password_hash, full_name, phone, role) 
+             VALUES ($1, $2, $3, $4, $5, $6) 
+             RETURNING *",
         )
         .bind(id)
         .bind(&email)
         .bind(&password_hash)
         .bind(&full_name)
         .bind(&phone)
+        .bind(payload.role)
         .fetch_one(&db)
         .await?;
 
     Ok((
         StatusCode::CREATED,
-        Json(UserResponse {
-            id: id.to_string(),
-            email,
-            full_name,
-            phone,
-        }),
+        Json(user.into()),
     ))
 }
 
@@ -193,15 +170,16 @@ pub async fn update_user(
         _ => None,
     };
 
-    let (id, email, full_name, phone): (Uuid, String, Option<String>, Option<String>) =
+    let user: User =
         sqlx::query_as(
             "UPDATE users SET
             email = COALESCE($2, email),
             password_hash = COALESCE($3, password_hash),
             full_name = COALESCE($4, full_name),
-            phone = COALESCE($5, phone)
+            phone = COALESCE($5, phone),
+            updated_at = NOW()
          WHERE id = $1
-         RETURNING id, email, full_name, phone",
+         RETURNING *",
         )
         .bind(id)
         .bind(email)
@@ -211,12 +189,7 @@ pub async fn update_user(
         .fetch_one(&db)
         .await?;
 
-    Ok(Json(UserResponse {
-        id: id.to_string(),
-        email,
-        full_name,
-        phone,
-    }))
+    Ok(Json(user.into()))
 }
 
 pub async fn delete_user(
@@ -237,16 +210,11 @@ pub async fn delete_user(
 }
 
 pub async fn get_me(State(db): State<Db>, user: AuthUser) -> AppResult<Json<UserResponse>> {
-    let (id, email, full_name, phone): (Uuid, String, Option<String>, Option<String>) =
-        sqlx::query_as("SELECT id, email, full_name, phone FROM users WHERE id = $1")
+    let user_data: User =
+        sqlx::query_as("SELECT * FROM users WHERE id = $1")
             .bind(user.user_id)
             .fetch_one(&db)
             .await?;
 
-    Ok(Json(UserResponse {
-        id: id.to_string(),
-        email,
-        full_name,
-        phone,
-    }))
+    Ok(Json(user_data.into()))
 }
