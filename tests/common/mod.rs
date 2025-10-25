@@ -107,3 +107,131 @@ pub async fn setup_test_database() -> PgPool {
 pub async fn begin_test_transaction(pool: &PgPool) -> Transaction<'_, Postgres> {
     pool.begin().await.expect("failed to begin transaction")
 }
+
+/// Test application with HTTP client
+pub struct TestApp {
+    pub address: String,
+    pub client: reqwest::Client,
+    pub db_pool: PgPool,
+}
+
+/// Spawn test application on random port
+pub async fn spawn_app() -> TestApp {
+    // Set JWT_SECRET for tests
+    if std::env::var("JWT_SECRET").is_err() {
+        unsafe {
+            std::env::set_var("JWT_SECRET", "test_secret_key_for_testing");
+        }
+    }
+
+    // Create test database pool
+    let db_pool = create_test_pool().await;
+
+    // Create the Axum app
+    let app = Router::new()
+        .nest("/api/v1", create_api_router())
+        .with_state(db_pool.clone());
+
+    // Bind to a random port
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("Failed to bind random port");
+    let port = listener.local_addr().unwrap().port();
+    let address = format!("http://127.0.0.1:{}", port);
+
+    // Spawn the server in background
+    tokio::spawn(async move {
+        axum::serve(listener, app)
+            .await
+            .expect("Failed to serve app");
+    });
+
+    // Create HTTP client
+    let client = reqwest::Client::new();
+
+    TestApp {
+        address,
+        client,
+        db_pool,
+    }
+}
+
+/// Test user helper
+pub struct TestUser {
+    pub email: String,
+    pub password: String,
+    pub full_name: String,
+    pub phone: String,
+    pub role: String,
+}
+
+impl TestUser {
+    /// Generate a new test customer
+    pub fn generate() -> Self {
+        let timestamp = chrono::Utc::now().timestamp_nanos_opt().unwrap();
+        Self {
+            email: format!("test{}@example.com", timestamp),
+            password: "password123".to_string(),
+            full_name: "Test User".to_string(),
+            phone: format!("+123456{}", timestamp % 10000),
+            role: "customer".to_string(),
+        }
+    }
+
+    /// Generate a new test vendor
+    pub fn generate_vendor() -> Self {
+        let timestamp = chrono::Utc::now().timestamp_nanos_opt().unwrap();
+        Self {
+            email: format!("vendor{}@example.com", timestamp),
+            password: "password123".to_string(),
+            full_name: "Test Vendor User".to_string(),
+            phone: format!("+987654{}", timestamp % 10000),
+            role: "vendor".to_string(),
+        }
+    }
+
+    /// Register this user
+    pub async fn register(&self, app: &TestApp) {
+        use serde_json::json;
+
+        let payload = json!({
+            "full_name": self.full_name,
+            "email": self.email,
+            "phone": self.phone,
+            "password": self.password,
+            "role": self.role
+        });
+
+        let response = app
+            .client
+            .post(&format!("{}/api/v1/auth/register", app.address))
+            .json(&payload)
+            .send()
+            .await
+            .expect("Failed to execute request");
+
+        assert_eq!(response.status(), 201);
+    }
+
+    /// Login and get JWT token
+    pub async fn login(&self, app: &TestApp) -> String {
+        use serde_json::json;
+
+        let payload = json!({
+            "email": self.email,
+            "password": self.password
+        });
+
+        let response = app
+            .client
+            .post(&format!("{}/api/v1/auth/login", app.address))
+            .json(&payload)
+            .send()
+            .await
+            .expect("Failed to execute request");
+
+        assert_eq!(response.status(), 200);
+        let body: Value = response.json().await.unwrap();
+        body["token"].as_str().unwrap().to_string()
+    }
+}

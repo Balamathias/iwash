@@ -285,9 +285,7 @@ pub async fn update_vendor(
         .ok_or(AppError::NotFound)?;
 
     if vendor.user_id != auth_user.user_id {
-        return Err(AppError::BadRequest(
-            "You can only update your own vendor profile".to_string(),
-        ));
+        return Err(AppError::Forbidden);
     }
 
     // Convert lat/long to Decimal

@@ -9,4 +9,6 @@ pub fn routes() -> Router<Db> {
         .route("/{id}", get(handlers::bookings::get_booking))
         .route("/{id}", patch(handlers::bookings::update_booking))
         .route("/{id}/cancel", delete(handlers::bookings::cancel_booking))
+        .route("/vendor", get(handlers::bookings::list_vendor_bookings))
+        .route("/vendor/{id}", patch(handlers::bookings::update_booking_status_vendor))
 }

@@ -11,7 +11,7 @@ use crate::{
     errors::{AppError, AppResult},
     middleware::AuthUser,
     models::{
-        Booking, BookingResponse, BookingStatus,
+        Booking, BookingResponse, BookingStatus, BookingWithDetails,
         CreateBookingRequest, ListBookingsQuery, PaginatedBookingsResponse,
         UpdateBookingRequest,
     },
@@ -127,12 +127,24 @@ pub async fn list_bookings(
     let (count_query, select_query) = if let Some(_status) = query.status {
         (
             "SELECT COUNT(*) FROM bookings WHERE user_id = $1 AND status = $2",
-            "SELECT * FROM bookings WHERE user_id = $1 AND status = $2 ORDER BY created_at DESC LIMIT $3 OFFSET $4"
+            "SELECT b.*, s.name as service_name, s.vendor_id, v.business_name as vendor_name
+             FROM bookings b
+             LEFT JOIN services s ON b.service_id = s.id
+             LEFT JOIN vendors v ON s.vendor_id = v.id
+             WHERE b.user_id = $1 AND b.status = $2
+             ORDER BY b.created_at DESC
+             LIMIT $3 OFFSET $4"
         )
     } else {
         (
             "SELECT COUNT(*) FROM bookings WHERE user_id = $1",
-            "SELECT * FROM bookings WHERE user_id = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3"
+            "SELECT b.*, s.name as service_name, s.vendor_id, v.business_name as vendor_name
+             FROM bookings b
+             LEFT JOIN services s ON b.service_id = s.id
+             LEFT JOIN vendors v ON s.vendor_id = v.id
+             WHERE b.user_id = $1
+             ORDER BY b.created_at DESC
+             LIMIT $2 OFFSET $3"
         )
     };
 
@@ -149,7 +161,7 @@ pub async fn list_bookings(
             .await?
     };
 
-    let bookings: Vec<Booking> = if let Some(status) = query.status {
+    let bookings: Vec<BookingWithDetails> = if let Some(status) = query.status {
         sqlx::query_as(select_query)
             .bind(auth_user.user_id)
             .bind(status)
@@ -187,8 +199,12 @@ pub async fn get_booking(
     let booking_id = Uuid::parse_str(&id)
         .map_err(|_| AppError::BadRequest("Invalid booking ID format".to_string()))?;
 
-    let booking = sqlx::query_as::<_, Booking>(
-        "SELECT * FROM bookings WHERE id = $1 AND user_id = $2"
+    let booking = sqlx::query_as::<_, BookingWithDetails>(
+        "SELECT b.*, s.name as service_name, s.vendor_id, v.business_name as vendor_name
+         FROM bookings b
+         LEFT JOIN services s ON b.service_id = s.id
+         LEFT JOIN vendors v ON s.vendor_id = v.id
+         WHERE b.id = $1 AND b.user_id = $2"
     )
     .bind(booking_id)
     .bind(auth_user.user_id)
@@ -330,4 +346,198 @@ pub async fn cancel_booking(
     .await?;
 
     Ok(StatusCode::NO_CONTENT)
+}
+
+/// List bookings for vendor's services (Vendor role required)
+pub async fn list_vendor_bookings(
+    State(db): State<Db>,
+    auth_user: AuthUser,
+    Query(query): Query<ListBookingsQuery>,
+) -> AppResult<Json<PaginatedBookingsResponse>> {
+    use crate::middleware::RequireVendor;
+    
+    // Check vendor role
+    let _vendor_role = RequireVendor::check(&db, &auth_user).await?;
+
+    let page = query.page.max(1);
+    let limit = query.limit.clamp(1, 100);
+    let offset = (page - 1) * limit;
+
+    // Get vendor ID for this user
+    let vendor_id: Option<Uuid> = sqlx::query_scalar(
+        "SELECT id FROM vendors WHERE user_id = $1 AND is_active = true"
+    )
+    .bind(auth_user.user_id)
+    .fetch_optional(&db)
+    .await?;
+
+    let vendor_id = vendor_id.ok_or(AppError::BadRequest(
+        "Vendor profile not found. Please create a vendor profile first.".to_string()
+    ))?;
+
+    // Build query based on filters
+    let (count_query, select_query) = if let Some(_status) = query.status {
+        (
+            "SELECT COUNT(*) FROM bookings b
+             INNER JOIN services s ON b.service_id = s.id
+             WHERE s.vendor_id = $1 AND b.status = $2",
+            "SELECT b.*, s.name as service_name, s.vendor_id, v.business_name as vendor_name
+             FROM bookings b
+             INNER JOIN services s ON b.service_id = s.id
+             LEFT JOIN vendors v ON s.vendor_id = v.id
+             WHERE s.vendor_id = $1 AND b.status = $2
+             ORDER BY b.created_at DESC
+             LIMIT $3 OFFSET $4"
+        )
+    } else {
+        (
+            "SELECT COUNT(*) FROM bookings b
+             INNER JOIN services s ON b.service_id = s.id
+             WHERE s.vendor_id = $1",
+            "SELECT b.*, s.name as service_name, s.vendor_id, v.business_name as vendor_name
+             FROM bookings b
+             INNER JOIN services s ON b.service_id = s.id
+             LEFT JOIN vendors v ON s.vendor_id = v.id
+             WHERE s.vendor_id = $1
+             ORDER BY b.created_at DESC
+             LIMIT $2 OFFSET $3"
+        )
+    };
+
+    let total: i64 = if let Some(status) = query.status {
+        sqlx::query_scalar(count_query)
+            .bind(vendor_id)
+            .bind(status)
+            .fetch_one(&db)
+            .await?
+    } else {
+        sqlx::query_scalar(count_query)
+            .bind(vendor_id)
+            .fetch_one(&db)
+            .await?
+    };
+
+    let bookings: Vec<BookingWithDetails> = if let Some(status) = query.status {
+        sqlx::query_as(select_query)
+            .bind(vendor_id)
+            .bind(status)
+            .bind(limit as i64)
+            .bind(offset as i64)
+            .fetch_all(&db)
+            .await?
+    } else {
+        sqlx::query_as(select_query)
+            .bind(vendor_id)
+            .bind(limit as i64)
+            .bind(offset as i64)
+            .fetch_all(&db)
+            .await?
+    };
+
+    let total_pages = ((total as f64) / (limit as f64)).ceil() as u32;
+    let booking_responses: Vec<BookingResponse> = bookings.into_iter().map(|b| b.into()).collect();
+
+    Ok(Json(PaginatedBookingsResponse {
+        bookings: booking_responses,
+        page,
+        limit,
+        total,
+        total_pages,
+    }))
+}
+
+/// Update booking status (Vendor role required)
+pub async fn update_booking_status_vendor(
+    State(db): State<Db>,
+    auth_user: AuthUser,
+    Path(id): Path<String>,
+    Json(payload): Json<UpdateBookingRequest>,
+) -> AppResult<Json<BookingResponse>> {
+    use crate::middleware::RequireVendor;
+    
+    // Check vendor role
+    let _vendor_role = RequireVendor::check(&db, &auth_user).await?;
+
+    let booking_id = Uuid::parse_str(&id)
+        .map_err(|_| AppError::BadRequest("Invalid booking ID format".to_string()))?;
+
+    // Get vendor ID
+    let vendor_id: Option<Uuid> = sqlx::query_scalar(
+        "SELECT id FROM vendors WHERE user_id = $1 AND is_active = true"
+    )
+    .bind(auth_user.user_id)
+    .fetch_optional(&db)
+    .await?;
+
+    let vendor_id = vendor_id.ok_or(AppError::BadRequest(
+        "Vendor profile not found".to_string()
+    ))?;
+
+    // Verify booking belongs to vendor's service
+    let booking_exists: bool = sqlx::query_scalar(
+        "SELECT EXISTS(
+            SELECT 1 FROM bookings b
+            INNER JOIN services s ON b.service_id = s.id
+            WHERE b.id = $1 AND s.vendor_id = $2
+        )"
+    )
+    .bind(booking_id)
+    .bind(vendor_id)
+    .fetch_one(&db)
+    .await?;
+
+    if !booking_exists {
+        return Err(AppError::NotFound);
+    }
+
+    // Vendors can only update specific fields (status, actual times, weight, price)
+    let actual_pickup_time = if let Some(ref time_str) = payload.actual_pickup_time {
+        Some(OffsetDateTime::parse(time_str, &time::format_description::well_known::Iso8601::DEFAULT)
+            .map_err(|_| AppError::BadRequest("Invalid actual_pickup_time format".to_string()))?)
+    } else {
+        None
+    };
+
+    let actual_delivery_time = if let Some(ref time_str) = payload.actual_delivery_time {
+        Some(OffsetDateTime::parse(time_str, &time::format_description::well_known::Iso8601::DEFAULT)
+            .map_err(|_| AppError::BadRequest("Invalid actual_delivery_time format".to_string()))?)
+    } else {
+        None
+    };
+
+    let total_weight_kg = payload.total_weight_kg.map(|w| rust_decimal::Decimal::from_f64_retain(w).unwrap_or_default());
+
+    // Update booking (vendors can update status, actual times, weight, and price)
+    sqlx::query(
+        "UPDATE bookings
+         SET status = COALESCE($1, status),
+             actual_pickup_time = COALESCE($2, actual_pickup_time),
+             actual_delivery_time = COALESCE($3, actual_delivery_time),
+             total_weight_kg = COALESCE($4, total_weight_kg),
+             total_price_cents = COALESCE($5, total_price_cents),
+             updated_at = NOW()
+         WHERE id = $6"
+    )
+    .bind(payload.status)
+    .bind(actual_pickup_time)
+    .bind(actual_delivery_time)
+    .bind(total_weight_kg)
+    .bind(payload.total_price_cents)
+    .bind(booking_id)
+    .execute(&db)
+    .await?;
+
+    // Fetch updated booking with details
+    let booking = sqlx::query_as::<_, BookingWithDetails>(
+        "SELECT b.*, s.name as service_name, s.vendor_id, v.business_name as vendor_name
+         FROM bookings b
+         LEFT JOIN services s ON b.service_id = s.id
+         LEFT JOIN vendors v ON s.vendor_id = v.id
+         WHERE b.id = $1"
+    )
+    .bind(booking_id)
+    .fetch_one(&db)
+    .await?;
+
+    Ok(Json(booking.into()))
 }

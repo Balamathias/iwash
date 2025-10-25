@@ -22,4 +22,7 @@ tower = "0.5.2"
 tower-http = { version = "0.6", features = ["trace", "cors"] }
 rust_decimal = "1.36"
 tower_governor = "0.5"
- 
+
+[dev-dependencies]
+reqwest = { version = "0.12", features = ["json"] }
+chrono = "0.4"

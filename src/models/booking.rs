@@ -38,6 +38,29 @@ pub struct Booking {
     pub updated_at: OffsetDateTime,
 }
 
+/// Extended booking with service and vendor information
+#[derive(Debug, Serialize, sqlx::FromRow)]
+pub struct BookingWithDetails {
+    pub id: Uuid,
+    pub user_id: Uuid,
+    pub service_id: Uuid,
+    pub service_name: Option<String>,
+    pub vendor_id: Option<Uuid>,
+    pub vendor_name: Option<String>,
+    pub status: BookingStatus,
+    pub pickup_address: String,
+    pub delivery_address: String,
+    pub scheduled_pickup_time: OffsetDateTime,
+    pub scheduled_delivery_time: Option<OffsetDateTime>,
+    pub actual_pickup_time: Option<OffsetDateTime>,
+    pub actual_delivery_time: Option<OffsetDateTime>,
+    pub total_weight_kg: Option<rust_decimal::Decimal>,
+    pub total_price_cents: i32,
+    pub notes: Option<String>,
+    pub created_at: OffsetDateTime,
+    pub updated_at: OffsetDateTime,
+}
+
 #[derive(Debug, Serialize, sqlx::FromRow)]
 pub struct BookingItem {
     pub id: Uuid,
@@ -85,6 +108,9 @@ pub struct BookingResponse {
     pub id: String,
     pub user_id: String,
     pub service_id: String,
+    pub service_name: Option<String>,
+    pub vendor_id: Option<String>,
+    pub vendor_name: Option<String>,
     pub status: BookingStatus,
     pub pickup_address: String,
     pub delivery_address: String,
@@ -141,6 +167,34 @@ impl From<Booking> for BookingResponse {
             id: booking.id.to_string(),
             user_id: booking.user_id.to_string(),
             service_id: booking.service_id.to_string(),
+            service_name: None,
+            vendor_id: None,
+            vendor_name: None,
+            status: booking.status,
+            pickup_address: booking.pickup_address,
+            delivery_address: booking.delivery_address,
+            scheduled_pickup_time: booking.scheduled_pickup_time.to_string(),
+            scheduled_delivery_time: booking.scheduled_delivery_time.map(|t| t.to_string()),
+            actual_pickup_time: booking.actual_pickup_time.map(|t| t.to_string()),
+            actual_delivery_time: booking.actual_delivery_time.map(|t| t.to_string()),
+            total_weight_kg: booking.total_weight_kg.map(|d| d.to_string().parse().unwrap_or(0.0)),
+            total_price_cents: booking.total_price_cents,
+            notes: booking.notes,
+            created_at: booking.created_at.to_string(),
+            updated_at: booking.updated_at.to_string(),
+        }
+    }
+}
+
+impl From<BookingWithDetails> for BookingResponse {
+    fn from(booking: BookingWithDetails) -> Self {
+        BookingResponse {
+            id: booking.id.to_string(),
+            user_id: booking.user_id.to_string(),
+            service_id: booking.service_id.to_string(),
+            service_name: booking.service_name,
+            vendor_id: booking.vendor_id.map(|id| id.to_string()),
+            vendor_name: booking.vendor_name,
             status: booking.status,
             pickup_address: booking.pickup_address,
             delivery_address: booking.delivery_address,
