@@ -1,4 +1,4 @@
-# 🧺 iWash - Multi-Vendor Laundry Booking Platform
+# 🧺 iWash - A Highly Performant Multi-Vendor Laundry Booking Platform API.
 
 A production-ready, scalable multi-vendor laundry booking platform built with Rust, designed to connect customers with local laundry service providers.
 
