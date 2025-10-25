@@ -1,56 +1,10 @@
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
-use axum::Router;
-use serde_json::{json, Value};
+use serde_json::json;
 use tower::ServiceExt;
 
-use iwash::routes::create_api_router;
-
-/// Helper to create a test app with lazy pool
-fn create_test_app() -> Router {
-    let pool = sqlx::postgres::PgPoolOptions::new()
-        .connect_lazy("postgres://postgres:matiecodes@localhost/iwash_db")
-        .expect("failed to create lazy pool");
-
-    Router::new()
-        .nest("/api/v1", create_api_router())
-        .with_state(pool)
-}
-
-/// Helper to parse JSON response body
-async fn parse_json_response(body: axum::body::Body) -> Value {
-    let bytes = axum::body::to_bytes(body, usize::MAX).await.unwrap();
-    serde_json::from_slice(&bytes).unwrap()
-}
-
-/// Generate a unique email for testing
-fn unique_email(base: &str) -> String {
-    let timestamp = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
-    format!("{}+{}@example.com", base, timestamp)
-}
-
-/// Helper to register and get a token
-async fn register_and_get_token(email: &str, password: &str) -> String {
-    let payload = json!({
-        "email": email,
-        "password": password,
-        "full_name": "Test User"
-    });
-
-    let req = Request::builder()
-        .uri("/api/v1/auth/register")
-        .method("POST")
-        .header("content-type", "application/json")
-        .body(Body::from(payload.to_string()))
-        .unwrap();
-
-    let resp = create_test_app().oneshot(req).await.unwrap();
-    let body = parse_json_response(resp.into_body()).await;
-    body["token"].as_str().unwrap().to_string()
-}
+mod common;
+use common::{create_test_app, parse_json_response, unique_email, register_and_get_token};
 
 #[tokio::test]
 async fn test_get_me_success() {
@@ -117,8 +71,12 @@ async fn test_list_users_success() {
     assert_eq!(resp.status(), StatusCode::OK);
     
     let body = parse_json_response(resp.into_body()).await;
-    assert!(body.is_array());
-    assert!(body.as_array().unwrap().len() > 0);
+    assert!(body["users"].is_array());
+    assert!(body["users"].as_array().unwrap().len() > 0);
+    assert_eq!(body["page"], 1);
+    assert_eq!(body["limit"], 10); // default limit
+    assert!(body["total"].as_i64().unwrap() > 0);
+    assert!(body["total_pages"].as_u64().unwrap() > 0);
 }
 
 #[tokio::test]
@@ -305,4 +263,103 @@ async fn test_delete_nonexistent_user() {
     let resp = create_test_app().oneshot(delete_req).await.unwrap();
     
     assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn test_list_users_with_pagination() {
+    let token = register_and_get_token(&unique_email("paginationtest"), "SecureP@ss123").await;
+
+    // Test with custom page and limit
+    let req = Request::builder()
+        .uri("/api/v1/users?page=1&limit=5")
+        .method("GET")
+        .header("authorization", format!("Bearer {}", token))
+        .body(Body::empty())
+        .unwrap();
+
+    let resp = create_test_app().oneshot(req).await.unwrap();
+    
+    assert_eq!(resp.status(), StatusCode::OK);
+    
+    let body = parse_json_response(resp.into_body()).await;
+    assert_eq!(body["page"], 1);
+    assert_eq!(body["limit"], 5);
+    assert!(body["users"].as_array().unwrap().len() <= 5);
+}
+
+#[tokio::test]
+async fn test_list_users_with_search() {
+    // Create a user with a unique searchable email
+    let search_email = unique_email("searchableuser");
+    let token = register_and_get_token(&search_email, "SecureP@ss123").await;
+
+    // Search for the user
+    let req = Request::builder()
+        .uri(&format!("/api/v1/users?search=searchableuser"))
+        .method("GET")
+        .header("authorization", format!("Bearer {}", token))
+        .body(Body::empty())
+        .unwrap();
+
+    let resp = create_test_app().oneshot(req).await.unwrap();
+    
+    assert_eq!(resp.status(), StatusCode::OK);
+    
+    let body = parse_json_response(resp.into_body()).await;
+    let users = body["users"].as_array().unwrap();
+    
+    // Should find at least the user we created
+    assert!(users.len() > 0);
+    
+    // Verify search worked - at least one user should match
+    let found = users.iter().any(|u| {
+        u["email"].as_str().unwrap().contains("searchableuser")
+    });
+    assert!(found, "Search should find the user with 'searchableuser' in email");
+}
+
+#[tokio::test]
+async fn test_list_users_search_by_name() {
+    // Create a user with a specific full name
+    let token = register_and_get_token(&unique_email("searchname"), "SecureP@ss123").await;
+
+    // The register_and_get_token creates users with full_name "Test User"
+    // Search for "Test"
+    let req = Request::builder()
+        .uri("/api/v1/users?search=Test")
+        .method("GET")
+        .header("authorization", format!("Bearer {}", token))
+        .body(Body::empty())
+        .unwrap();
+
+    let resp = create_test_app().oneshot(req).await.unwrap();
+    
+    assert_eq!(resp.status(), StatusCode::OK);
+    
+    let body = parse_json_response(resp.into_body()).await;
+    let users = body["users"].as_array().unwrap();
+    
+    // Should find users with "Test" in their name
+    assert!(users.len() > 0);
+}
+
+#[tokio::test]
+async fn test_list_users_limit_cap() {
+    let token = register_and_get_token(&unique_email("limitcaptest"), "SecureP@ss123").await;
+
+    // Try to request more than max limit (100)
+    let req = Request::builder()
+        .uri("/api/v1/users?limit=200")
+        .method("GET")
+        .header("authorization", format!("Bearer {}", token))
+        .body(Body::empty())
+        .unwrap();
+
+    let resp = create_test_app().oneshot(req).await.unwrap();
+    
+    assert_eq!(resp.status(), StatusCode::OK);
+    
+    let body = parse_json_response(resp.into_body()).await;
+    // Should be capped at 100
+    assert_eq!(body["limit"], 100);
 }

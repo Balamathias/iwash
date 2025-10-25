@@ -1,6 +1,9 @@
--- iWash initial schema
+-- Test database schema
+-- This should be applied to a separate test database (iwash_test)
 
-CREATE TABLE IF NOT EXISTS users (
+DROP TABLE IF EXISTS users CASCADE;
+
+CREATE TABLE users (
   id uuid PRIMARY KEY,
   email text NOT NULL UNIQUE,
   password_hash text NOT NULL,

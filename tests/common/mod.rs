@@ -1,0 +1,109 @@
+// Common test utilities and helpers
+use axum::body::Body;
+use axum::Router;
+use serde_json::Value;
+use sqlx::{PgPool, Postgres, Transaction};
+
+use iwash::routes::create_api_router;
+
+/// Get the test database URL from environment or use default
+pub fn test_database_url() -> String {
+    std::env::var("TEST_DATABASE_URL")
+        .unwrap_or_else(|_| "postgres://postgres:matiecodes@localhost/iwash_test".to_string())
+}
+
+/// Create a test app with a real database connection
+/// This will use a test database separate from production
+pub fn create_test_app() -> Router {
+    // Ensure JWT_SECRET is set for tests
+    if std::env::var("JWT_SECRET").is_err() {
+        unsafe {
+            std::env::set_var("JWT_SECRET", "test_secret_key_for_testing");
+        }
+    }
+
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(5)
+        .connect_lazy(&test_database_url())
+        .expect("failed to create test pool");
+
+    Router::new()
+        .nest("/api/v1", create_api_router())
+        .with_state(pool)
+}
+
+/// Create a real database pool for tests that need direct DB access
+pub async fn create_test_pool() -> PgPool {
+    sqlx::postgres::PgPoolOptions::new()
+        .max_connections(5)
+        .connect(&test_database_url())
+        .await
+        .expect("failed to connect to test database")
+}
+
+/// Parse JSON response body
+pub async fn parse_json_response(body: axum::body::Body) -> Value {
+    let bytes = axum::body::to_bytes(body, usize::MAX).await.unwrap();
+    serde_json::from_slice(&bytes).unwrap()
+}
+
+/// Generate a unique email for testing
+pub fn unique_email(base: &str) -> String {
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    format!("{}+{}@example.com", base, timestamp)
+}
+
+/// Helper to register and get a token
+pub async fn register_and_get_token(email: &str, password: &str) -> String {
+    use axum::http::Request;
+    use serde_json::json;
+    use tower::ServiceExt;
+
+    let payload = json!({
+        "email": email,
+        "password": password,
+        "full_name": "Test User"
+    });
+
+    let req = Request::builder()
+        .uri("/api/v1/auth/register")
+        .method("POST")
+        .header("content-type", "application/json")
+        .body(Body::from(payload.to_string()))
+        .unwrap();
+
+    let resp = create_test_app().oneshot(req).await.unwrap();
+    let body = parse_json_response(resp.into_body()).await;
+    body["token"].as_str().unwrap().to_string()
+}
+
+/// Clean up test data - truncate all tables
+pub async fn cleanup_test_data(pool: &PgPool) {
+    sqlx::query("TRUNCATE TABLE users CASCADE")
+        .execute(pool)
+        .await
+        .expect("failed to cleanup test data");
+}
+
+/// Setup test database - ensure schema is applied
+pub async fn setup_test_database() -> PgPool {
+    let pool = create_test_pool().await;
+    
+    // Apply schema (idempotent due to IF NOT EXISTS)
+    let schema = include_str!("../../sql/test_schema.sql");
+    sqlx::raw_sql(schema)
+        .execute(&pool)
+        .await
+        .expect("failed to apply test schema");
+    
+    pool
+}
+
+/// Begin a database transaction for isolated testing
+/// Tests can use this to ensure data is rolled back
+pub async fn begin_test_transaction(pool: &PgPool) -> Transaction<'_, Postgres> {
+    pool.begin().await.expect("failed to begin transaction")
+}

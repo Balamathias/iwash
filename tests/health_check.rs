@@ -1,19 +1,13 @@
-use axum::Router;
 use axum::http::{Request, StatusCode};
 use axum::body::Body;
 use tower::ServiceExt;
 
-use iwash::routes::create_api_router;
+mod common;
+use common::create_test_app;
 
 #[tokio::test]
 async fn health_check_returns_200() {
-    let pool = sqlx::postgres::PgPoolOptions::new()
-        .connect_lazy("postgres://postgres:matiecodes@localhost/iwash_db")
-        .expect("failed to create lazy pool");
-
-    let app: Router = Router::new()
-        .nest("/api/v1", create_api_router())
-        .with_state(pool);
+    let app = create_test_app();
 
     let req = Request::builder()
         .uri("/api/v1/health")

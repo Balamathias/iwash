@@ -182,10 +182,16 @@ cargo test health_check
 
 ## 🌐 Environment Variables
 
-Required in `.env`:
-- `DATABASE_URL` - PostgreSQL connection string
+### Production (.env)
+- `DATABASE_URL` - PostgreSQL connection string for production
 - `JWT_SECRET` - Secret key for JWT signing
 - `RUST_LOG` - Log level (info, debug, warn, error)
+
+### Testing
+- `TEST_DATABASE_URL` - PostgreSQL connection string for test database (separate from production)
+- `JWT_SECRET` - Secret key for test JWT tokens
+
+**Important**: Tests use a **separate test database** (`iwash_test`) to ensure production data is never affected.
 
 ## 📦 Dependencies
 

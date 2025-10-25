@@ -52,3 +52,29 @@ pub struct UpdateUserRequest {
     pub full_name: Option<String>,
     pub phone: Option<String>,
 }
+
+#[derive(Debug, Deserialize)]
+pub struct ListUsersQuery {
+    #[serde(default = "default_page")]
+    pub page: u32,
+    #[serde(default = "default_limit")]
+    pub limit: u32,
+    pub search: Option<String>,
+}
+
+fn default_page() -> u32 {
+    1
+}
+
+fn default_limit() -> u32 {
+    10
+}
+
+#[derive(Debug, Serialize)]
+pub struct PaginatedUsersResponse {
+    pub users: Vec<UserResponse>,
+    pub page: u32,
+    pub limit: u32,
+    pub total: i64,
+    pub total_pages: u32,
+}

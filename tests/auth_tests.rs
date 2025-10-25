@@ -1,36 +1,10 @@
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
-use axum::Router;
-use serde_json::{json, Value};
+use serde_json::json;
 use tower::ServiceExt;
 
-use iwash::routes::create_api_router;
-
-/// Helper to create a test app with lazy pool
-fn create_test_app() -> Router {
-    let pool = sqlx::postgres::PgPoolOptions::new()
-        .connect_lazy("postgres://postgres:matiecodes@localhost/iwash_db")
-        .expect("failed to create lazy pool");
-
-    Router::new()
-        .nest("/api/v1", create_api_router())
-        .with_state(pool)
-}
-
-/// Helper to parse JSON response body
-async fn parse_json_response(body: axum::body::Body) -> Value {
-    let bytes = axum::body::to_bytes(body, usize::MAX).await.unwrap();
-    serde_json::from_slice(&bytes).unwrap()
-}
-
-/// Generate a unique email for testing
-fn unique_email(base: &str) -> String {
-    let timestamp = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
-    format!("{}+{}@example.com", base, timestamp)
-}
+mod common;
+use common::{create_test_app, parse_json_response, unique_email};
 
 #[tokio::test]
 async fn test_register_success() {

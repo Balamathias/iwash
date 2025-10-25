@@ -1,20 +1,76 @@
-use axum::{extract::{Path, State}, http::StatusCode, Json};
+use axum::{extract::{Path, Query, State}, http::StatusCode, Json};
 use uuid::Uuid;
 
 use crate::{
     db::Db,
     errors::{AppError, AppResult},
     middleware::AuthUser,
-    models::{CreateUserRequest, UpdateUserRequest, UserResponse},
+    models::{CreateUserRequest, ListUsersQuery, PaginatedUsersResponse, UpdateUserRequest, UserResponse},
 };
 
 pub async fn list_users(
     State(db): State<Db>,
     _user: AuthUser,
-) -> AppResult<Json<Vec<UserResponse>>> {
+    Query(query): Query<ListUsersQuery>,
+) -> AppResult<Json<PaginatedUsersResponse>> {
+    // Defaults and bounds for pagination (values are non-optional with serde defaults)
+    let limit: u32 = query.limit.max(1).min(100);
+    let page: u32 = query.page.max(1);
+    let offset = (page - 1) as i64 * (limit as i64);
+
+    // If search is provided, run filtered queries; otherwise run plain queries.
+    if let Some(search_term) = query.search.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        let pattern = format!("%{}%", search_term.to_lowercase());
+
+        // Total matching rows
+        let total: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM users WHERE LOWER(email) LIKE $1 OR LOWER(full_name) LIKE $1",
+        )
+        .bind(&pattern)
+        .fetch_one(&db)
+        .await?;
+
+        // Paginated result set (note bind order: pattern, limit, offset)
+        let rows: Vec<(Uuid, String, Option<String>, Option<String>)> = sqlx::query_as(
+            "SELECT id, email, full_name, phone FROM users WHERE LOWER(email) LIKE $1 OR LOWER(full_name) LIKE $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3",
+        )
+        .bind(&pattern)
+        .bind(limit as i64)
+        .bind(offset)
+        .fetch_all(&db)
+        .await?;
+
+        let users = rows
+            .into_iter()
+            .map(|(id, email, full_name, phone)| UserResponse {
+                id: id.to_string(),
+                email,
+                full_name,
+                phone,
+            })
+            .collect();
+
+        let total_pages = ((total as f64) / (limit as f64)).ceil() as u32;
+
+        return Ok(Json(PaginatedUsersResponse {
+            users,
+            page,
+            limit,
+            total,
+            total_pages,
+        }));
+    }
+
+    // No search term: full list with pagination
+    let total: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM users")
+        .fetch_one(&db)
+        .await?;
+
     let rows: Vec<(Uuid, String, Option<String>, Option<String>)> = sqlx::query_as(
-        "SELECT id, email, full_name, phone FROM users ORDER BY created_at DESC LIMIT 100",
+        "SELECT id, email, full_name, phone FROM users ORDER BY created_at DESC LIMIT $1 OFFSET $2",
     )
+    .bind(limit as i64)
+    .bind(offset)
     .fetch_all(&db)
     .await?;
 
@@ -28,7 +84,15 @@ pub async fn list_users(
         })
         .collect();
 
-    Ok(Json(users))
+    let total_pages = ((total as f64) / (limit as f64)).ceil() as u32;
+
+    Ok(Json(PaginatedUsersResponse {
+        users,
+        page,
+        limit,
+        total,
+        total_pages,
+    }))
 }
 
 pub async fn get_user(

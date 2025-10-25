@@ -1,6 +1,7 @@
 use axum::{routing::get, Router};
 use std::net::SocketAddr;
-use tracing::info;
+use tower_http::trace::{self, TraceLayer};
+use tracing::{info, Level};
 use tracing_subscriber::EnvFilter;
 
 use iwash::{db, routes};
@@ -18,7 +19,12 @@ async fn main() {
     let app = Router::new()
         .route("/", get(|| async { "Welcome to iWash API 🧺" }))
         .nest("/api/v1", routes::create_api_router())
-        .with_state(pool.clone());
+        .with_state(pool.clone())
+        .layer(
+            TraceLayer::new_for_http()
+                .make_span_with(trace::DefaultMakeSpan::new().level(Level::INFO))
+                .on_response(trace::DefaultOnResponse::new().level(Level::INFO)),
+        );
 
     let addr = SocketAddr::from(([127, 0, 0, 1], 8080));
     info!("🚀 iWash backend running on http://{}", addr);

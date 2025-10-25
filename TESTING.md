@@ -70,29 +70,67 @@ JWT_SECRET=test_secret_key cargo test -- --nocapture
 
 ## 📋 Test Environment
 
-Tests use a lazy database pool, which means they don't require an active PostgreSQL connection during test execution. However, for end-to-end validation, ensure:
+Tests use a **separate test database** to ensure isolation from production data.
 
-1. **PostgreSQL is running**
-2. **Database exists**: `iwash_db`
-3. **Schema is applied**: `psql $DATABASE_URL -f sql/schema.sql`
-4. **Environment variables set**:
-   - `DATABASE_URL=postgres://postgres:password@localhost/iwash_db`
-   - `JWT_SECRET=test_secret_key`
+### Database Setup
+
+1. **Create test database**:
+   ```bash
+   psql -U postgres -c "CREATE DATABASE iwash_test;"
+   ```
+
+2. **Apply test schema**:
+   ```bash
+   psql -U postgres -d iwash_test -f sql/test_schema.sql
+   ```
+
+3. **Set environment variables**:
+   ```bash
+   export TEST_DATABASE_URL=postgres://postgres:password@localhost/iwash_test
+   export JWT_SECRET=test_secret_key
+   ```
+
+### Environment Variables
+
+- `TEST_DATABASE_URL` - Connection string for test database (separate from production)
+- `JWT_SECRET` - Secret key for JWT token generation in tests
+
+**Important**: Tests will **NOT** use your production `DATABASE_URL`. They use `TEST_DATABASE_URL` to ensure complete isolation.
+
+### Test Database Schema
+
+The test schema (`sql/test_schema.sql`) includes:
+- `DROP TABLE IF EXISTS` statements for clean resets
+- Complete table definitions matching production
+- Indexes for performance
+
+This allows tests to start with a clean slate on each run.
 
 ## 🔧 Test Utilities
 
+All test utilities are centralized in `tests/common/mod.rs` for consistency and reusability.
+
 ### Helper Functions
 
-- `create_test_app()` - Creates a test instance of the API router
+Located in `tests/common/mod.rs`:
+
+- `test_database_url()` - Returns TEST_DATABASE_URL from environment
+- `create_test_app()` - Creates a test instance of the API router with test database
+- `create_test_pool()` - Creates a real database pool for direct DB access
 - `parse_json_response()` - Parses JSON response bodies
-- `unique_email()` - Generates unique emails for test isolation
+- `unique_email()` - Generates unique emails for test isolation (timestamp-based)
 - `register_and_get_token()` - Registers a user and returns JWT token
+- `cleanup_test_data()` - Truncates all tables for cleanup
+- `setup_test_database()` - Applies test schema and returns pool
+- `begin_test_transaction()` - Starts a transaction for isolated testing
 
 ### Test Isolation
 
-- Each test uses unique email addresses (timestamp-based)
-- Tests are independent and can run in parallel
-- No shared state between tests
+- **Separate test database** (`iwash_test`) - Never touches production data
+- **Unique email addresses** (nanosecond timestamp) - Prevents conflicts
+- **Clean schema on demand** - `test_schema.sql` can reset database
+- **Independent tests** - No shared state between tests
+- **Parallel execution safe** - Tests can run concurrently
 
 ## 📊 Test Output Example
 
@@ -168,11 +206,19 @@ For CI/CD pipelines, ensure:
 
 ```yaml
 env:
-  DATABASE_URL: postgres://postgres:password@localhost:5432/iwash_test
+  TEST_DATABASE_URL: postgres://postgres:password@localhost:5432/iwash_test
   JWT_SECRET: ci_test_secret_key
   RUST_LOG: info
 
+services:
+  postgres:
+    image: postgres:15
+    env:
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: iwash_test
+
 script:
+  - psql $TEST_DATABASE_URL -f sql/test_schema.sql
   - cargo test --all-features
 ```
 
