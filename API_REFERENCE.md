@@ -65,6 +65,53 @@ GET /vendors/{vendor_id}
 ```
 **Response**: `200 OK` (same structure as vendor in list)
 
+### Get Vendor Services (Public)
+```http
+GET /vendors/{vendor_id}/services
+```
+**Response**: `200 OK`
+```json
+[
+  {
+    "id": "uuid",
+    "vendor_id": "uuid",
+    "name": "Wash & Fold",
+    "description": "Regular laundry service",
+    "base_price_cents": 5000,
+    "price_per_kg_cents": 2000,
+    "estimated_duration_hours": 24,
+    "is_featured": false,
+    "is_active": true
+  }
+]
+```
+
+### Get Vendor Reviews (Public)
+```http
+GET /vendors/{vendor_id}/reviews?page=1&limit=20
+```
+**Response**: `200 OK`
+```json
+{
+  "reviews": [
+    {
+      "id": "uuid",
+      "vendor_id": "uuid",
+      "user_id": "uuid",
+      "booking_id": "uuid",
+      "rating": 5,
+      "comment": "Excellent service!",
+      "vendor_response": null,
+      "created_at": "2025-10-25T12:00:00Z"
+    }
+  ],
+  "total": 128,
+  "page": 1,
+  "limit": 20,
+  "total_pages": 7
+}
+```
+
 ### Browse Services
 ```http
 GET /services?vendor_id=uuid&page=1&limit=20
@@ -584,5 +631,5 @@ curl -X POST http://localhost:3000/api/v1/bookings \
 
 ---
 
-**Version**: 1.0.0  
-**Last Updated**: October 25, 2025
+**Version**: 1.1.0  
+**Last Updated**: October 27, 2025

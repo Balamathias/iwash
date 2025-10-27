@@ -1,1 +1,4 @@
 /target
+
+# sqlx query metadata cache
+.sqlx/

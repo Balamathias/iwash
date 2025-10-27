@@ -122,9 +122,9 @@ impl RequireVendor {
             .await?; // Let database errors propagate with full details
 
         if !matches!(role, UserRole::Vendor) {
-            return Err(AppError::BadRequest(
+            return Err(AppError::Forbidden(Some(
                 "Vendor role required for this endpoint".to_string(),
-            ));
+            )));
         }
 
         Ok(RequireVendor {
@@ -149,9 +149,9 @@ impl RequireAdmin {
             .await?; // Let database errors propagate with full details
 
         if !matches!(role, UserRole::Admin) {
-            return Err(AppError::BadRequest(
+            return Err(AppError::Forbidden(Some(
                 "Admin role required for this endpoint".to_string(),
-            ));
+            )));
         }
 
         Ok(RequireAdmin {

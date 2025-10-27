@@ -81,7 +81,7 @@ pub async fn register_and_get_token(email: &str, password: &str) -> String {
 }
 
 /// Clean up test data - truncate all tables
-pub async fn cleanup_test_data(pool: &PgPool) {
+pub async fn _cleanup_test_data(pool: &PgPool) {
     sqlx::query("TRUNCATE TABLE users CASCADE")
         .execute(pool)
         .await

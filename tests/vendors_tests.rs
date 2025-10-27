@@ -108,7 +108,7 @@ async fn test_customer_cannot_create_vendor_profile() {
         .await
         .expect("Failed to execute request");
 
-    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
 }
 
 #[tokio::test]

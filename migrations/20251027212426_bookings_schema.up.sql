@@ -4,7 +4,7 @@
 -- Services table: Different types of laundry services
 CREATE TABLE IF NOT EXISTS services (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    name VARCHAR(100) NOT NULL UNIQUE,
+    name VARCHAR(100) NOT NULL,
     description TEXT,
     base_price_cents INTEGER NOT NULL DEFAULT 0,
     price_per_kg_cents INTEGER NOT NULL DEFAULT 0,
@@ -69,5 +69,4 @@ INSERT INTO services (name, description, base_price_cents, price_per_kg_cents, e
     ('Dry Clean', 'Professional dry cleaning for suits and formal wear', 1500, 800, 48),
     ('Express Wash', 'Fast wash and dry service completed in 12 hours', 1000, 400, 12),
     ('Iron Only', 'Professional ironing service', 300, 200, 6),
-    ('Wash & Iron', 'Complete wash, dry, and iron service', 700, 400, 30)
-ON CONFLICT (name) DO NOTHING;
+    ('Wash & Iron', 'Complete wash, dry, and iron service', 700, 400, 30);

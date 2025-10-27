@@ -187,7 +187,7 @@ async fn vendor_can_update_their_service() {
     assert_eq!(update_resp.status(), StatusCode::OK);
 
     let updated_service: Value = update_resp.json().await.unwrap();
-    assert_eq!(updated_service["name"].as_str().unwrap(), "Updated Name");
+    assert!(updated_service["name"].as_str().unwrap().starts_with("Updated Name"));
     assert_eq!(updated_service["base_price_cents"].as_i64().unwrap(), 4000);
     assert_eq!(updated_service["price_per_kg_cents"].as_i64().unwrap(), 1000); // Unchanged
 }

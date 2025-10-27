@@ -52,15 +52,15 @@ iwash/
 │   │   ├── mod.rs
 │   │   ├── auth.rs          # Registration, login
 │   │   ├── users.rs         # User CRUD
-│   │   ├── vendors.rs       # Vendor management (TBD)
-│   │   ├── services.rs      # Service listing
+│   │   ├── vendors.rs       # Vendor management
+│   │   ├── services.rs      # Service listing & vendor services
 │   │   ├── bookings.rs      # Booking management
 │   │   └── health.rs        # Health checks
 │   ├── routes/              # Route definitions (thin layer)
 │   │   ├── mod.rs
 │   │   ├── auth.rs
 │   │   ├── users.rs
-│   │   ├── vendors.rs       # (TBD)
+│   │   ├── vendors.rs
 │   │   ├── services.rs
 │   │   ├── bookings.rs
 │   │   └── health.rs
@@ -80,13 +80,19 @@ iwash/
 │   ├── health_check.rs      # 1 test
 │   ├── auth_tests.rs        # 6 tests
 │   ├── users_tests.rs       # 15 tests
-│   ├── bookings_tests.rs    # (TBD)
-│   └── vendors_tests.rs     # (TBD)
-├── sql/                     # Database schemas
-│   ├── schema.sql           # Base schema
-│   ├── test_schema.sql      # Test database schema
-│   ├── bookings_schema.sql  # Booking system
-│   └── multi_vendor_migration.sql  # Multi-vendor architecture
+│   ├── bookings_tests.rs    # 9 tests
+│   └── vendors_tests.rs     # 16 tests (vendor services tests)
+├── migrations/              # sqlx-cli versioned migrations (industry standard)
+│   ├── 20251027212411_initial_schema.up.sql
+│   ├── 20251027212411_initial_schema.down.sql
+│   ├── 20251027212426_bookings_schema.up.sql
+│   ├── 20251027212426_bookings_schema.down.sql
+│   ├── 20251027212437_multi_vendor.up.sql
+│   └── 20251027212437_multi_vendor.down.sql
+├── sql/                     # Legacy SQL files (DEPRECATED - use migrations/)
+│   ├── 001_schema.sql       # Migrated to migrations/
+│   ├── 002_bookings_schema.sql  # Migrated to migrations/
+│   └── 003_multi_vendor_migration.sql  # Migrated to migrations/
 ├── Cargo.toml
 ├── .env
 └── README.md
@@ -140,56 +146,79 @@ We have successfully built a robust multi-vendor laundry booking platform:
 🎯 **CURRENT WORK: Multi-Vendor Implementation**
 
 **Phase 4: Vendor Management & Public APIs (COMPLETED)**
-Vendor management handlers, routes and vendor service management (create/update/delete) are implemented. Booking creation now calculates prices automatically from service pricing. The following endpoints are available:
 
-1. **Vendor Handlers** (`src/handlers/vendors.rs`)
-   - Register as vendor (create vendor profile)
-   - Get vendor profile (own and public)
-   - Update vendor profile
-   - List all vendors (PUBLIC, filterable by city, rating, verified status)
-   - Get vendor details (PUBLIC)
-   - Vendor dashboard stats
+All vendor management features are fully implemented with role-based access control:
 
-2. **Vendor Routes** (`src/routes/vendors.rs`)
+✅ **Vendor Profile Management**
+   - Create vendor profile (POST /api/v1/vendors) - Vendor role required
+   - List all vendors (GET /api/v1/vendors) - PUBLIC, with filters
+   - Get vendor details (GET /api/v1/vendors/{id}) - PUBLIC
+   - Get own vendor profile (GET /api/v1/vendors/me) - Vendor role
+   - Update vendor profile (PATCH /api/v1/vendors/{id}) - Owner only
+   - Get vendor statistics (GET /api/v1/vendors/me/stats) - Vendor role
+
+✅ **Vendor Service Management**
+   - Create service (POST /api/v1/vendors/me/services) - Vendor role required
+   - List own services (GET /api/v1/vendors/me/services) - Vendor role
+   - Update service (PATCH /api/v1/vendors/me/services/{id}) - Owner only
+   - Delete/deactivate service (DELETE /api/v1/vendors/me/services/{id}) - Owner only
+   - List vendor's services PUBLIC (GET /api/v1/vendors/{id}/services) - No auth required
+
+✅ **Reviews & Ratings**
+   - List vendor reviews PUBLIC (GET /api/v1/vendors/{id}/reviews) - No auth required
+
+✅ **Booking Management for Vendors**
+   - List vendor's bookings (GET /api/v1/bookings/vendor) - Vendor role required
+   - Update booking status (PATCH /api/v1/bookings/vendor/{id}/status) - Vendor role
+   - Automatic price calculation: total_price = base_price + (price_per_kg × weight)
+
+✅ **Role-Based Access Control**
+   - RequireVendor middleware for vendor-only endpoints
+   - RequireAdmin middleware for admin-only endpoints
+   - Custom error messages with AppError::Forbidden(Option<String>)
+
+2. **API Endpoints Summary**
+   
+   **Public Endpoints** (No authentication):
    ```
-   POST   /api/v1/vendors          - Create vendor profile (Vendor role required)
-   GET    /api/v1/vendors          - List all vendors (PUBLIC)
-   GET    /api/v1/vendors/me       - Get own vendor profile (Vendor role)
-   GET    /api/v1/vendors/{id}     - Get vendor details (PUBLIC)
-   PATCH  /api/v1/vendors/{id}     - Update vendor profile (Vendor role)
-   GET    /api/v1/vendors/{id}/services  - List vendor services (PUBLIC)
-   GET    /api/v1/vendors/{id}/reviews   - List vendor reviews (PUBLIC)
+   GET    /api/v1/vendors                - List all vendors with filters
+   GET    /api/v1/vendors/{id}           - Get vendor details
+   GET    /api/v1/vendors/{id}/services  - List vendor's services
+   GET    /api/v1/vendors/{id}/reviews   - List vendor's reviews
+   GET    /api/v1/services               - List all active services
+   GET    /api/v1/services/{id}          - Get service details
    ```
 
-3. **Role-Based Access Control**
-   - Update AuthUser middleware to extract user role
-   - Create RequireRole middleware (RequireVendor, RequireAdmin)
-   - Apply role guards to protected endpoints
-   - Make public endpoints accessible without auth
+   **Vendor-Only Endpoints** (Vendor role required):
+   ```
+   POST   /api/v1/vendors                - Create vendor profile
+   GET    /api/v1/vendors/me             - Get own vendor profile
+   PATCH  /api/v1/vendors/{id}           - Update vendor profile (owner only)
+   GET    /api/v1/vendors/me/stats       - Get vendor dashboard statistics
+   
+   POST   /api/v1/vendors/me/services    - Create new service
+   GET    /api/v1/vendors/me/services    - List own services
+   PATCH  /api/v1/vendors/me/services/{id} - Update service (owner only)
+   DELETE /api/v1/vendors/me/services/{id} - Deactivate service (owner only)
+   
+   GET    /api/v1/bookings/vendor        - List vendor's bookings
+   PATCH  /api/v1/bookings/vendor/{id}/status - Update booking status
+   ```
 
-4. **Public Endpoints** (No authentication required)
-   - GET /api/v1/vendors (browse all vendors)
-   - GET /api/v1/vendors/{id} (vendor details)
-   - GET /api/v1/vendors/{id}/services (vendor's services)
-   - GET /api/v1/vendors/{id}/reviews (vendor reviews)
-   - GET /api/v1/services (browse all services)
-   - GET /api/v1/services/{id} (service details)
+3. **Key Features Implemented**
 
-5. **Update Services Handlers**
-   - Make list_services and get_service PUBLIC
-   - Add vendor_id filter to list_services
-   - Return vendor info with service details
-
-6. **Update Bookings for Multi-Vendor**
-   - Link bookings to vendors through services
-   - Add vendor_id to booking responses
-   - Vendor dashboard: view their bookings
-   - Customer view: see vendor info in bookings
-   - Vendor can update booking status
+3. **Key Features Implemented**
+   - Automatic price calculation for bookings (base_price + price_per_kg × weight)
+   - Service ownership validation (vendors can only modify their own services)
+   - Soft delete for services (is_active = false)
+   - Public vendor discovery with filters (city, rating, verification status)
+   - Vendor dashboard with statistics (bookings, revenue, ratings)
+   - Review system for vendor feedback
+   - Role-based access control with clear error messages
 
 ---
 
-🎯 **NEXT STEPS: Complete Multi-Vendor Features**
+🎯 **NEXT STEPS: Additional Features**
 
 **Phase 5: Reviews & Ratings (Future)**
 - Customer can leave review after booking completion
@@ -303,11 +332,28 @@ When assisting in this project, the AI agent should:
 - Use appropriate log levels (info, warn, error)
 - Include request IDs for traceability via request_id middleware
 
+**Database Migrations:**
+- iWash uses sqlx-cli for industry-standard versioned migrations
+- All schema changes must be in timestamped migration files in `migrations/` folder
+- Never modify existing migration files after they've been applied to production
+- Always create both `.up.sql` and `.down.sql` files for reversibility
+- Test migrations on a copy of production data before deploying
+- Migration tracking is automatic via `_sqlx_migrations` table
+- Run migrations: `sqlx migrate run --database-url $DATABASE_URL`
+- Create new migration: `sqlx migrate add -r migration_name`
+- Cloud deployments: Use `sslmode=require` in DATABASE_URL for SSL/TLS
+
 Example .env
 ```env
 DATABASE_URL=postgres://postgres:password@localhost/iwash_db
 TEST_DATABASE_URL=postgres://postgres:password@localhost/iwash_test
 JWT_SECRET=super_secret_key_change_in_production
+```
+
+Example .env.production (Cloud)
+```env
+DATABASE_URL=postgres://username:password@aws-rds-host.com:5432/iwash_production?sslmode=require
+JWT_SECRET=your_production_jwt_secret_256_bits
 ```
 
 🧭 Goal

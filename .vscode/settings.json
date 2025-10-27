@@ -1,0 +1,26 @@
+{
+    "sqltools.connections": [
+        {
+            "ssh": "Disabled",
+            "previewLimit": 50,
+            "server": "localhost",
+            "port": 5432,
+            "driver": "PostgreSQL",
+            "name": "iwash_db (Production)",
+            "database": "iwash_db",
+            "username": "postgres",
+            "password": "matiecodes"
+        },
+        {
+            "ssh": "Disabled",
+            "previewLimit": 50,
+            "server": "localhost",
+            "port": 5432,
+            "driver": "PostgreSQL",
+            "name": "iwash_test (Testing)",
+            "database": "iwash_test",
+            "username": "postgres",
+            "password": "matiecodes"
+        }
+    ]
+}
