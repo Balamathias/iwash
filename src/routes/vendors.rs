@@ -19,4 +19,6 @@ pub fn routes() -> Router<Db> {
         .route("/me/services", post(handlers::services::create_vendor_service))
         .route("/me/services/{id}", patch(handlers::services::update_vendor_service))
         .route("/me/services/{id}", delete(handlers::services::delete_vendor_service))
+        // Vendor review responses (vendor role required)
+        .route("/me/reviews/{id}/response", post(handlers::reviews::vendor_respond_to_review))
 }

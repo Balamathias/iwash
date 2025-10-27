@@ -172,8 +172,6 @@ pub struct Review {
 
 #[derive(Debug, Deserialize)]
 pub struct CreateReviewRequest {
-    pub vendor_id: String,
-    pub booking_id: Option<String>,
     pub rating: i32,
     pub comment: Option<String>,
 }
@@ -205,4 +203,9 @@ impl From<Review> for ReviewResponse {
             created_at: review.created_at.to_string(),
         }
     }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct VendorResponseRequest {
+    pub response: String,
 }
